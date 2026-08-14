@@ -5,12 +5,13 @@
 // ======================================================
 
 const firebaseConfig = {
-    apiKey: "PASTE_YOUR_API_KEY_HERE",
-    authDomain: "PASTE_YOUR_AUTH_DOMAIN_HERE",
-    projectId: "PASTE_YOUR_PROJECT_ID_HERE",
-    storageBucket: "PASTE_YOUR_STORAGE_BUCKET_HERE",
-    messagingSenderId: "PASTE_YOUR_MESSAGING_SENDER_ID_HERE",
-    appId: "PASTE_YOUR_APP_ID_HERE"
+  apiKey: "AIzaSyD5mGOzs5cJhWg7xac1ONJOJds4GkwjemA",
+  authDomain: "attendance-apk-8f619.firebaseapp.com",
+  databaseURL: "https://attendance-apk-8f619-default-rtdb.firebaseio.com",
+  projectId: "attendance-apk-8f619",
+  storageBucket: "attendance-apk-8f619.firebasestorage.app",
+  messagingSenderId: "922973833002",
+  appId: "1:922973833002:web:d2f41a023c73017c258053"
 };
 
 // Import Firebase SDKs from CDN
