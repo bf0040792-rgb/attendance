@@ -777,23 +777,35 @@ const generateLinkHandler = async () => {
         const baseUrl = window.location.origin + window.location.pathname;
         const fullUrl = `${baseUrl}?token=${token}`;
         
-        document.getElementById('generated-link-url').value = fullUrl;
-        openModal('modal-link');
+        // Show directly on dashboard box instead of modal
+        const resultBox = document.getElementById('dash-link-result');
+        const inputField = document.getElementById('dash-link-input');
+        
+        if (resultBox && inputField) {
+            inputField.value = fullUrl;
+            resultBox.classList.remove('hidden');
+        }
+        
+        showToast("Link generated successfully!", "success");
     } catch(error) {
-        showToast("Error generating link", "error");
+        console.error(error);
+        showToast("Error generating link. Is Firestore enabled?", "error");
     }
 };
 
-document.getElementById('btn-generate-link').addEventListener('click', generateLinkHandler);
 document.getElementById('btn-generate-link-dash').addEventListener('click', generateLinkHandler);
-document.getElementById('btn-generate-link-page').addEventListener('click', generateLinkHandler);
+// Note: Other generate link buttons will also use this, but the result box is on the dashboard.
+if (document.getElementById('btn-generate-link')) document.getElementById('btn-generate-link').addEventListener('click', generateLinkHandler);
+if (document.getElementById('btn-generate-link-page')) document.getElementById('btn-generate-link-page').addEventListener('click', generateLinkHandler);
 
-document.getElementById('btn-copy-link').addEventListener('click', () => {
-    const input = document.getElementById('generated-link-url');
-    input.select();
-    document.execCommand('copy');
-    showToast("Link copied to clipboard", "success");
-});
+if (document.getElementById('dash-link-copy')) {
+    document.getElementById('dash-link-copy').addEventListener('click', () => {
+        const input = document.getElementById('dash-link-input');
+        input.select();
+        document.execCommand('copy');
+        showToast("Link copied to clipboard", "success");
+    });
+}
 
 window.copyLink = (token) => {
     const baseUrl = window.location.origin + window.location.pathname;

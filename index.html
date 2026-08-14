@@ -137,7 +137,16 @@
                             <h2>Dashboard Overview</h2>
                             <p class="text-muted">Welcome back! Here's what's happening today.</p>
                         </div>
-                        <button class="btn-primary" id="btn-generate-link-dash"><i class='bx bx-link-external'></i> Generate Link</button>
+                        <div style="text-align: right;">
+                            <button class="btn-primary" id="btn-generate-link-dash"><i class='bx bx-link-external'></i> Generate Link</button>
+                            <div id="dash-link-result" class="hidden" style="margin-top: 15px; padding: 15px; background: #e0e7ff; border-radius: 8px; border: 1px solid #4f46e5; text-align: left;">
+                                <p style="font-size: 13px; margin-bottom: 8px; font-weight: 600; color: #4f46e5;">Share this link with students:</p>
+                                <div style="display:flex; gap:10px;">
+                                    <input type="text" id="dash-link-input" readonly class="form-control" style="flex:1; background:#fff;">
+                                    <button class="btn-primary" id="dash-link-copy"><i class='bx bx-copy'></i> Copy</button>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     <div class="stats-grid">
                         <div class="stat-card">
@@ -379,7 +388,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h2>Create Subject</h2>
-                <button class="close-modal"><i class='bx bx-x'></i></button>
+                <button class="close-modal" onclick="closeModals()"><i class='bx bx-x'></i></button>
             </div>
             <div class="modal-body">
                 <form id="form-subject">
@@ -392,7 +401,7 @@
                         <input type="text" id="subj-desc" class="form-control">
                     </div>
                     <div class="modal-actions">
-                        <button type="button" class="btn-outline close-modal-btn">Cancel</button>
+                        <button type="button" class="btn-outline close-modal-btn" onclick="closeModals()">Cancel</button>
                         <button type="submit" class="btn-primary">Save</button>
                     </div>
                 </form>
@@ -405,7 +414,7 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h2>Assign Subject</h2>
-                <button class="close-modal"><i class='bx bx-x'></i></button>
+                <button class="close-modal" onclick="closeModals()"><i class='bx bx-x'></i></button>
             </div>
             <div class="modal-body">
                 <p id="assign-count-text" class="mb-1 text-muted"></p>
@@ -417,7 +426,7 @@
                         </select>
                     </div>
                     <div class="modal-actions">
-                        <button type="button" class="btn-outline close-modal-btn">Cancel</button>
+                        <button type="button" class="btn-outline close-modal-btn" onclick="closeModals()">Cancel</button>
                         <button type="submit" class="btn-primary">Confirm</button>
                     </div>
                 </form>
@@ -425,6 +434,13 @@
         </div>
     </div>
 
+    <script>
+        // Make closeModals available globally for inline onclick
+        window.closeModals = function() {
+            document.getElementById('modal-backdrop').classList.add('hidden');
+            document.querySelectorAll('.modal').forEach(m => m.classList.add('hidden'));
+        };
+    </script>
     <script type="module" src="script.js"></script>
 </body>
 </html>
