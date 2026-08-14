@@ -374,10 +374,11 @@ function setupRealtimeListeners() {
         
         snapshot.forEach(doc => {
             const data = doc.data();
-            // Deduplicate by Roll Number
-            if (!seenRolls.has(data.rollNumber)) {
+            // Deduplicate by Roll Number + Subject ID
+            const uniqueKey = data.rollNumber + '_' + data.subjectId;
+            if (!seenRolls.has(uniqueKey)) {
                 allStudents.push({ id: doc.id, ...data });
-                seenRolls.add(data.rollNumber);
+                seenRolls.add(uniqueKey);
             }
         });
         
@@ -771,7 +772,7 @@ document.getElementById('form-assign').addEventListener('submit', async (e) => {
             });
 
             // 2. Check Deduplication before adding Student
-            const alreadyExists = allStudents.some(s => s.rollNumber === req.rollNumber);
+            const alreadyExists = allStudents.some(s => s.rollNumber === req.rollNumber && s.subjectId === subject.id);
             if (!alreadyExists) {
                 const studRef = doc(collection(db, "students"));
                 batch.set(studRef, {
