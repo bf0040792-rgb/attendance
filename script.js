@@ -560,6 +560,7 @@ function renderStudentsTable() {
                 <td>${s.rollNumber}</td>
                 <td><span class="status-badge active">${s.subjectName}</span></td>
                 <td>
+                    <button class="btn-text" onclick="openEditStudent('${s.id}')" style="margin-right: 5px;">Edit</button>
                     <button class="btn-text text-red" onclick="removeStudent('${s.id}', '${s.requestId}')" title="Delete Permanently">Delete</button>
                 </td>
             `;
@@ -669,10 +670,15 @@ function attachCheckboxListeners() {
     const bulkBar = document.getElementById('bulk-action-bar');
     const bulkCount = document.getElementById('bulk-count');
 
-    const updateBulkBar = () => {
+    function updateBulkBar() {
         if(selectedRequests.size > 0) {
             bulkBar.classList.remove('hidden');
             bulkCount.textContent = `${selectedRequests.size} Selected`;
+            if (currentTabStatus === 'pending') {
+                document.getElementById('btn-bulk-assign').classList.remove('hidden');
+            } else {
+                document.getElementById('btn-bulk-assign').classList.add('hidden');
+            }
         } else {
             bulkBar.classList.add('hidden');
         }
@@ -793,6 +799,11 @@ document.getElementById('btn-bulk-delete').addEventListener('click', async () =>
         const batch = writeBatch(db);
         selectedRequests.forEach(id => {
             batch.delete(doc(db, "enrollmentRequests", id));
+            // Also delete associated student if accepted
+            const student = allStudents.find(s => s.requestId === id);
+            if(student) {
+                batch.delete(doc(db, "students", student.id));
+            }
         });
         await batch.commit();
         showToast(`Deleted ${selectedRequests.size} requests permanently`, "success");
@@ -807,7 +818,16 @@ document.getElementById('btn-bulk-delete').addEventListener('click', async () =>
 window.deleteRequest = async (reqId) => {
     if(!confirm("Are you sure you want to permanently delete this request?")) return;
     try {
-        await deleteDoc(doc(db, "enrollmentRequests", reqId));
+        const batch = writeBatch(db);
+        batch.delete(doc(db, "enrollmentRequests", reqId));
+        
+        // Also delete associated student if accepted
+        const student = allStudents.find(s => s.requestId === reqId);
+        if(student) {
+            batch.delete(doc(db, "students", student.id));
+        }
+        
+        await batch.commit();
         showToast("Request deleted", "success");
     } catch(err) {
         showToast("Error deleting request", "error");
@@ -866,7 +886,7 @@ document.getElementById('form-assign').addEventListener('submit', async (e) => {
 
 // Remove Student
 window.removeStudent = async (studentId, requestId) => {
-    if(!confirm("Are you sure you want to remove this student? This action cannot be undone.")) return;
+    if(!confirm("Are you sure you want to permanently delete this student? This action cannot be undone.")) return;
     try {
         const batch = writeBatch(db);
         batch.delete(doc(db, "students", studentId));
@@ -874,11 +894,57 @@ window.removeStudent = async (studentId, requestId) => {
             batch.delete(doc(db, "enrollmentRequests", requestId));
         }
         await batch.commit();
-        showToast("Student removed successfully", "success");
+        showToast("Student deleted permanently", "success");
     } catch(err) {
-        showToast("Error removing student", "error");
+        showToast("Error deleting student", "error");
     }
 };
+
+window.openEditStudent = (studentId) => {
+    const student = allStudents.find(s => s.id === studentId);
+    if (!student) return;
+    
+    document.getElementById('edit-student-id').value = student.id;
+    document.getElementById('edit-request-id').value = student.requestId || '';
+    document.getElementById('edit-student-name').value = student.name;
+    document.getElementById('edit-student-roll').value = student.rollNumber;
+    
+    openModal('modal-edit-student');
+};
+
+document.getElementById('form-edit-student').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const id = document.getElementById('edit-student-id').value;
+    const reqId = document.getElementById('edit-request-id').value;
+    const newName = document.getElementById('edit-student-name').value.trim().toUpperCase();
+    const newRoll = parseInt(document.getElementById('edit-student-roll').value.trim(), 10);
+    
+    if (!newName || isNaN(newRoll)) return;
+
+    try {
+        const batch = writeBatch(db);
+        
+        batch.update(doc(db, "students", id), {
+            name: newName,
+            rollNumber: newRoll
+        });
+        
+        if (reqId) {
+            batch.update(doc(db, "enrollmentRequests", reqId), {
+                studentName: newName,
+                rollNumber: newRoll
+            });
+        }
+        
+        await batch.commit();
+        closeModals();
+        showToast("Student updated successfully", "success");
+    } catch(err) {
+        console.error(err);
+        showToast("Error updating student", "error");
+    }
+});
 
 // ======================================================
 // SUBJECT MANAGEMENT
