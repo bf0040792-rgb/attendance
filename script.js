@@ -187,7 +187,7 @@ async function validateEnrollmentToken(token) {
 
 document.getElementById('enrollment-form').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const name = document.getElementById('student-name').value.trim();
+    const name = document.getElementById('student-name').value.trim().toUpperCase();
     const roll = document.getElementById('student-roll').value.trim();
     
     if(!name || !roll) return;
