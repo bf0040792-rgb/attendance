@@ -386,6 +386,7 @@ function setupRealtimeListeners() {
         renderStudentsTable();
         renderDashRecentStudents();
         renderDigitChart();
+        renderSubjectsTable();
     });
 
     // 4. Listen to Links
@@ -796,8 +797,14 @@ document.getElementById('btn-bulk-delete').addEventListener('click', async () =>
         const batch = writeBatch(db);
         selectedRequests.forEach(id => {
             batch.delete(doc(db, "enrollmentRequests", id));
-            // Also delete associated student if accepted
-            const student = allStudents.find(s => s.requestId === id);
+            // Find student (handle older records without requestId)
+            let student = allStudents.find(s => s.requestId === id);
+            if (!student) {
+                const req = allRequests.find(r => r.id === id);
+                if (req) {
+                    student = allStudents.find(s => s.rollNumber === req.rollNumber && s.name === req.studentName);
+                }
+            }
             if(student) {
                 batch.delete(doc(db, "students", student.id));
             }
@@ -808,6 +815,7 @@ document.getElementById('btn-bulk-delete').addEventListener('click', async () =>
         document.getElementById('select-all-requests').checked = false;
         document.getElementById('bulk-action-bar').classList.add('hidden');
     } catch(err) {
+        console.error(err);
         showToast("Error deleting requests", "error");
     }
 });
@@ -818,8 +826,14 @@ window.deleteRequest = async (reqId) => {
         const batch = writeBatch(db);
         batch.delete(doc(db, "enrollmentRequests", reqId));
         
-        // Also delete associated student if accepted
-        const student = allStudents.find(s => s.requestId === reqId);
+        // Find student (handle older records without requestId)
+        let student = allStudents.find(s => s.requestId === reqId);
+        if (!student) {
+            const req = allRequests.find(r => r.id === reqId);
+            if (req) {
+                student = allStudents.find(s => s.rollNumber === req.rollNumber && s.name === req.studentName);
+            }
+        }
         if(student) {
             batch.delete(doc(db, "students", student.id));
         }
@@ -827,6 +841,7 @@ window.deleteRequest = async (reqId) => {
         await batch.commit();
         showToast("Request deleted", "success");
     } catch(err) {
+        console.error(err);
         showToast("Error deleting request", "error");
     }
 };
@@ -1121,5 +1136,9 @@ if (document.getElementById('students-search')) {
 }
 
 document.getElementById('request-status-filter').addEventListener('change', () => {
+    selectedRequests.clear();
+    document.getElementById('bulk-action-bar').classList.add('hidden');
+    const selectAll = document.getElementById('select-all-requests');
+    if (selectAll) selectAll.checked = false;
     renderRequestsTable();
 });
