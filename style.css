@@ -96,18 +96,71 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+    background: linear-gradient(-45deg, #4f46e5, #60a5fa, #c026d3, #f43f5e);
+    background-size: 400% 400%;
+    animation: gradientBG 15s ease infinite;
     padding: 20px;
 }
 
 .login-card {
-    background: var(--card-bg);
+    background: rgba(255, 255, 255, 0.15);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.3);
     padding: 40px;
-    border-radius: var(--radius);
-    box-shadow: var(--shadow-lg);
+    border-radius: 20px;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.2);
     width: 100%;
     max-width: 440px;
     animation: slideUp 0.5s ease;
+    color: white;
+}
+
+/* Glass UI specific text and elements for Login */
+.login-card .brand h2, 
+.login-card .subtitle, 
+.login-card .form-group label {
+    color: white;
+}
+
+.login-card .brand-icon {
+    color: white;
+}
+
+.login-card .input-with-icon input {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    color: white;
+}
+
+.login-card .input-with-icon input::placeholder {
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.login-card .input-with-icon i {
+    color: rgba(255, 255, 255, 0.8);
+}
+
+.login-card .input-with-icon input:focus {
+    background: rgba(255, 255, 255, 0.25);
+    border-color: rgba(255, 255, 255, 0.8);
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.2);
+}
+
+.login-card .btn-primary {
+    background: rgba(255, 255, 255, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    color: white;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+}
+
+.login-card .btn-primary:hover {
+    background: rgba(255, 255, 255, 0.4);
+    transform: translateY(-2px);
+}
+
+.login-card .error-text {
+    text-shadow: 0 2px 5px rgba(0,0,0,0.2);
 }
 
 /* Student Enrollment View (Glassmorphism) */

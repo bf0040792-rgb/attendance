@@ -7,6 +7,9 @@
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link href='https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css' rel='stylesheet'>
+    <!-- jsPDF for PDF generation -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
 </head>
 <body>
     <!-- Toast Container -->
@@ -285,6 +288,7 @@
                             <h2>Students</h2>
                             <p class="text-muted"><i class='bx bx-bot'></i> Smart Roll Sequence Active</p>
                         </div>
+                        <button class="btn-primary" id="btn-download-pdf"><i class='bx bxs-file-pdf'></i> Download PDF</button>
                     </div>
                     <div class="card">
                         <div class="table-responsive">

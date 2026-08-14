@@ -546,6 +546,45 @@ function renderStudentsTable() {
         });
 }
 
+// Download PDF Logic
+document.getElementById('btn-download-pdf').addEventListener('click', () => {
+    if (allStudents.length === 0) {
+        showToast("No students to download", "error");
+        return;
+    }
+
+    // Initialize jsPDF
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    
+    // Sort students numerically by roll number just like the table
+    const sortedStudents = [...allStudents].sort((a, b) => a.rollNumber - b.rollNumber);
+    
+    // Format data for autotable
+    const tableData = sortedStudents.map((s, index) => [
+        index + 1,
+        s.name,
+        s.rollNumber,
+        s.subjectName
+    ]);
+
+    doc.setFontSize(18);
+    doc.text("Students Enrollment Record", 14, 22);
+    
+    // Generate Table
+    doc.autoTable({
+        startY: 30,
+        head: [['Pos', 'Name', 'Roll No', 'Subject']],
+        body: tableData,
+        theme: 'grid',
+        headStyles: { fillColor: [79, 70, 229] }, // matches --primary color
+        alternateRowStyles: { fillColor: [248, 250, 252] }
+    });
+
+    doc.save("students_record.pdf");
+    showToast("PDF downloaded successfully", "success");
+});
+
 function renderDigitChart() {
     const container = document.getElementById('digit-chart');
     container.innerHTML = '';
