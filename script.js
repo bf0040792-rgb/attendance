@@ -504,16 +504,25 @@ function renderSubjectsTable() {
 }
 
 function updateSubjectSelects() {
-    const selects = [document.getElementById('assign-subject-select'), document.getElementById('link-subject-select')];
+    const selects = [
+        document.getElementById('assign-subject-select'), 
+        document.getElementById('link-subject-select'),
+        document.getElementById('filter-subject')
+    ];
     selects.forEach(select => {
         if(!select) return;
-        select.innerHTML = '<option value="">-- Choose Subject --</option>';
+        
+        const currentValue = select.value;
+        select.innerHTML = select.id === 'filter-subject' ? '<option value="">All Subjects</option>' : '<option value="">-- Choose Subject --</option>';
+        
         allSubjects.forEach(sub => {
             const opt = document.createElement('option');
             opt.value = sub.id;
             opt.textContent = sub.name;
             select.appendChild(opt);
         });
+        
+        select.value = currentValue;
     });
 }
 
@@ -524,13 +533,19 @@ function updateSubjectSelects() {
 function renderStudentsTable() {
     const tbody = document.getElementById('students-tbody');
     const searchTerm = document.getElementById('global-search').value.toLowerCase();
+    const filterSubjectId = document.getElementById('filter-subject').value;
+    
     tbody.innerHTML = '';
 
     // Sort numerically by roll number ascending
     const sortedStudents = [...allStudents].sort((a, b) => a.rollNumber - b.rollNumber);
 
     sortedStudents
-        .filter(s => s.name.toLowerCase().includes(searchTerm) || String(s.rollNumber).includes(searchTerm))
+        .filter(s => {
+            const matchSearch = s.name.toLowerCase().includes(searchTerm) || String(s.rollNumber).includes(searchTerm);
+            const matchSubject = filterSubjectId === "" || s.subjectId === filterSubjectId;
+            return matchSearch && matchSubject;
+        })
         .forEach((s, index) => {
             const tr = document.createElement('tr');
             tr.innerHTML = `
@@ -546,19 +561,33 @@ function renderStudentsTable() {
         });
 }
 
+// Trigger table render when filter changes
+if(document.getElementById('filter-subject')) {
+    document.getElementById('filter-subject').addEventListener('change', renderStudentsTable);
+}
+
 // Download PDF Logic
 document.getElementById('btn-download-pdf').addEventListener('click', () => {
-    if (allStudents.length === 0) {
-        showToast("No students to download", "error");
+    const filterSubjectId = document.getElementById('filter-subject').value;
+    const searchTerm = document.getElementById('global-search').value.toLowerCase();
+    
+    // Sort and filter students for PDF
+    const sortedStudents = [...allStudents]
+        .filter(s => {
+            const matchSearch = s.name.toLowerCase().includes(searchTerm) || String(s.rollNumber).includes(searchTerm);
+            const matchSubject = filterSubjectId === "" || s.subjectId === filterSubjectId;
+            return matchSearch && matchSubject;
+        })
+        .sort((a, b) => a.rollNumber - b.rollNumber);
+
+    if (sortedStudents.length === 0) {
+        showToast("No students to download matching the current filters", "error");
         return;
     }
 
     // Initialize jsPDF
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
-    
-    // Sort students numerically by roll number just like the table
-    const sortedStudents = [...allStudents].sort((a, b) => a.rollNumber - b.rollNumber);
     
     // Format data for autotable
     const tableData = sortedStudents.map((s, index) => [
@@ -568,8 +597,14 @@ document.getElementById('btn-download-pdf').addEventListener('click', () => {
         s.subjectName
     ]);
 
+    let title = "Students Enrollment Record";
+    if (filterSubjectId) {
+        const selectedSubject = allSubjects.find(sub => sub.id === filterSubjectId);
+        if (selectedSubject) title += ` - ${selectedSubject.name}`;
+    }
+
     doc.setFontSize(18);
-    doc.text("Students Enrollment Record", 14, 22);
+    doc.text(title, 14, 22);
     
     // Generate Table
     doc.autoTable({
@@ -581,7 +616,13 @@ document.getElementById('btn-download-pdf').addEventListener('click', () => {
         alternateRowStyles: { fillColor: [248, 250, 252] }
     });
 
-    doc.save("students_record.pdf");
+    let filename = "students_record.pdf";
+    if (filterSubjectId) {
+        const selectedSubject = allSubjects.find(sub => sub.id === filterSubjectId);
+        if (selectedSubject) filename = `${selectedSubject.name.replace(/\s+/g, '_')}_record.pdf`;
+    }
+
+    doc.save(filename);
     showToast("PDF downloaded successfully", "success");
 });
 

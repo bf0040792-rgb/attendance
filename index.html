@@ -196,11 +196,13 @@
                             </div>
                         </div>
                         <div class="card">
-                            <div class="card-header">
-                                <h3>Recently Enrolled</h3>
-                                <button class="btn-text btn-nav" data-target="students-section">View All</button>
-                            </div>
                             <div class="table-responsive">
+                                <div class="table-header-actions" style="margin-bottom: 15px; display: flex; gap: 10px;">
+                                    <input type="text" id="global-search" class="form-control" placeholder="Search students, roll numbers..." style="max-width: 300px;">
+                                    <select id="filter-subject" class="form-select" style="max-width: 250px;">
+                                        <option value="">All Subjects</option>
+                                    </select>
+                                </div>
                                 <table class="table">
                                     <thead>
                                         <tr>
