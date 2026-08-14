@@ -139,13 +139,6 @@
                         </div>
                         <div style="text-align: right;">
                             <button class="btn-primary" id="btn-generate-link-dash"><i class='bx bx-link-external'></i> Generate Link</button>
-                            <div id="dash-link-result" class="hidden" style="margin-top: 15px; padding: 15px; background: #e0e7ff; border-radius: 8px; border: 1px solid #4f46e5; text-align: left;">
-                                <p style="font-size: 13px; margin-bottom: 8px; font-weight: 600; color: #4f46e5;">Share this link with students:</p>
-                                <div style="display:flex; gap:10px;">
-                                    <input type="text" id="dash-link-input" readonly class="form-control" style="flex:1; background:#fff;">
-                                    <button class="btn-primary" id="dash-link-copy"><i class='bx bx-copy'></i> Copy</button>
-                                </div>
-                            </div>
                         </div>
                     </div>
                     <div class="stats-grid">
@@ -298,11 +291,10 @@
                             <table class="table">
                                 <thead>
                                     <tr>
-                                        <th>Smart Pos</th>
+                                        <th>Pos</th>
                                         <th>Name</th>
                                         <th>Roll No</th>
                                         <th>Subject</th>
-                                        <th>Digit Freq</th>
                                         <th>Actions</th>
                                     </tr>
                                 </thead>
@@ -371,13 +363,36 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h2>Enrollment Link</h2>
-                <button class="close-modal"><i class='bx bx-x'></i></button>
+                <button class="close-modal" onclick="closeModals()"><i class='bx bx-x'></i></button>
             </div>
             <div class="modal-body">
                 <p>Share this link with students. They will be able to submit their enrollment requests.</p>
                 <div class="copy-box">
                     <input type="text" id="generated-link-url" readonly>
                     <button class="btn-secondary" id="btn-copy-link"><i class='bx bx-copy'></i></button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Generate Link with Subject Modal -->
+    <div id="modal-generate-link" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Generate Auto-Assign Link</h2>
+                <button class="close-modal" onclick="closeModals()"><i class='bx bx-x'></i></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted mb-1">Select a subject. Students using this link will automatically be assigned to this subject.</p>
+                <div class="form-group mt-2">
+                    <label>Select Subject</label>
+                    <select id="link-subject-select" class="form-select">
+                        <option value="">-- Choose Subject --</option>
+                    </select>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-outline close-modal-btn" onclick="closeModals()">Cancel</button>
+                    <button type="button" class="btn-primary" id="btn-confirm-generate">Generate Link</button>
                 </div>
             </div>
         </div>

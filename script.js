@@ -200,17 +200,55 @@ document.getElementById('enrollment-form').addEventListener('submit', async (e) 
     document.getElementById('btn-submit-enrollment').disabled = true;
 
     try {
-        await addDoc(collection(db, "enrollmentRequests"), {
-            studentName: name,
-            rollNumber: parseInt(roll, 10),
-            enrollmentToken: currentEnrollmentToken,
-            status: "pending",
-            createdAt: serverTimestamp()
-        });
+        // Find if link has a pre-assigned subject
+        const q = query(collection(db, "enrollmentLinks"), where("token", "==", currentEnrollmentToken));
+        const snapshot = await getDocs(q);
+        
+        let subjectId = null;
+        let subjectName = null;
+        if (!snapshot.empty) {
+            const linkData = snapshot.docs[0].data();
+            subjectId = linkData.subjectId || null;
+            subjectName = linkData.subjectName || null;
+        }
+
+        if (subjectId) {
+            // Auto Accept Flow
+            const reqRef = await addDoc(collection(db, "enrollmentRequests"), {
+                studentName: name,
+                rollNumber: parseInt(roll, 10),
+                enrollmentToken: currentEnrollmentToken,
+                status: "accepted",
+                assignedSubjectId: subjectId,
+                assignedSubjectName: subjectName,
+                createdAt: serverTimestamp(),
+                acceptedAt: serverTimestamp()
+            });
+
+            // IMPORTANT: Requires Firestore rule allowing public create on 'students'
+            await addDoc(collection(db, "students"), {
+                requestId: reqRef.id,
+                name: name,
+                rollNumber: parseInt(roll, 10),
+                subjectId: subjectId,
+                subjectName: subjectName,
+                enrolledAt: serverTimestamp()
+            });
+        } else {
+            // Normal Pending Flow
+            await addDoc(collection(db, "enrollmentRequests"), {
+                studentName: name,
+                rollNumber: parseInt(roll, 10),
+                enrollmentToken: currentEnrollmentToken,
+                status: "pending",
+                createdAt: serverTimestamp()
+            });
+        }
 
         document.getElementById('student-form-container').classList.add('hidden');
         document.getElementById('student-success-container').classList.remove('hidden');
     } catch (error) {
+        console.error(error);
         showToast("Error submitting request. Please try again.", "error");
         btnText.classList.remove('hidden');
         spinner.classList.add('hidden');
@@ -332,7 +370,17 @@ function setupRealtimeListeners() {
     const studQ = query(collection(db, "students"), orderBy("enrolledAt", "desc"));
     const unsubStud = onSnapshot(studQ, (snapshot) => {
         allStudents = [];
-        snapshot.forEach(doc => allStudents.push({ id: doc.id, ...doc.data() }));
+        const seenRolls = new Set();
+        
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            // Deduplicate by Roll Number
+            if (!seenRolls.has(data.rollNumber)) {
+                allStudents.push({ id: doc.id, ...data });
+                seenRolls.add(data.rollNumber);
+            }
+        });
+        
         document.getElementById('stat-total-students').textContent = allStudents.length;
         renderStudentsTable();
         renderDashRecentStudents();
@@ -456,13 +504,16 @@ function renderSubjectsTable() {
 }
 
 function updateSubjectSelects() {
-    const select = document.getElementById('assign-subject-select');
-    select.innerHTML = '<option value="">-- Choose Subject --</option>';
-    allSubjects.forEach(sub => {
-        const opt = document.createElement('option');
-        opt.value = sub.id;
-        opt.textContent = sub.name;
-        select.appendChild(opt);
+    const selects = [document.getElementById('assign-subject-select'), document.getElementById('link-subject-select')];
+    selects.forEach(select => {
+        if(!select) return;
+        select.innerHTML = '<option value="">-- Choose Subject --</option>';
+        allSubjects.forEach(sub => {
+            const opt = document.createElement('option');
+            opt.value = sub.id;
+            opt.textContent = sub.name;
+            select.appendChild(opt);
+        });
     });
 }
 
@@ -475,56 +526,24 @@ function renderStudentsTable() {
     const searchTerm = document.getElementById('global-search').value.toLowerCase();
     tbody.innerHTML = '';
 
-    // Calculate Smart Sequence
-    const processedStudents = calculateSmartSequence(allStudents);
+    // Sort numerically by roll number ascending
+    const sortedStudents = [...allStudents].sort((a, b) => a.rollNumber - b.rollNumber);
 
-    processedStudents
+    sortedStudents
         .filter(s => s.name.toLowerCase().includes(searchTerm) || String(s.rollNumber).includes(searchTerm))
-        .forEach(s => {
+        .forEach((s, index) => {
             const tr = document.createElement('tr');
             tr.innerHTML = `
-                <td><strong class="text-green">#${s.smartPosition}</strong></td>
+                <td><strong class="text-green">#${index + 1}</strong></td>
                 <td><strong>${s.name}</strong></td>
                 <td>${s.rollNumber}</td>
                 <td><span class="status-badge active">${s.subjectName}</span></td>
-                <td>Digit <b>${s._lastDigit}</b> (Freq: ${s.frequency})</td>
                 <td>
                     <button class="btn-text text-red" onclick="removeStudent('${s.id}', '${s.requestId}')">Remove</button>
                 </td>
             `;
             tbody.appendChild(tr);
         });
-}
-
-/**
- * Smart Roll Sequence Engine logic
- * Organizes students based on the frequency of the final digit of their roll number.
- */
-function calculateSmartSequence(students) {
-    const freq = {};
-    
-    // 1. Extract final digit and calculate frequency
-    students.forEach(s => {
-        const strRoll = String(s.rollNumber);
-        const lastDigit = strRoll.slice(-1);
-        freq[lastDigit] = (freq[lastDigit] || 0) + 1;
-        s._lastDigit = lastDigit;
-    });
-
-    // 2. Sort by frequency (highest first), then by complete roll number
-    const sorted = [...students].sort((a, b) => {
-        const freqDiff = freq[b._lastDigit] - freq[a._lastDigit]; // Descending frequency
-        if (freqDiff !== 0) return freqDiff;
-        // If frequency is same, sort numerically by roll number
-        return a.rollNumber - b.rollNumber;
-    });
-
-    // 3. Assign smart positions
-    return sorted.map((s, index) => ({
-        ...s,
-        smartPosition: index + 1,
-        frequency: freq[s._lastDigit]
-    }));
 }
 
 function renderDigitChart() {
@@ -671,21 +690,24 @@ document.getElementById('form-assign').addEventListener('submit', async (e) => {
                 assignedSubjectName: subject.name
             });
 
-            // 2. Create Student Record
-            const studRef = doc(collection(db, "students"));
-            batch.set(studRef, {
-                requestId: reqId,
-                name: req.studentName,
-                rollNumber: req.rollNumber,
-                subjectId: subject.id,
-                subjectName: subject.name,
-                enrolledAt: serverTimestamp()
-            });
+            // 2. Check Deduplication before adding Student
+            const alreadyExists = allStudents.some(s => s.rollNumber === req.rollNumber);
+            if (!alreadyExists) {
+                const studRef = doc(collection(db, "students"));
+                batch.set(studRef, {
+                    requestId: reqId,
+                    name: req.studentName,
+                    rollNumber: req.rollNumber,
+                    subjectId: subject.id,
+                    subjectName: subject.name,
+                    enrolledAt: serverTimestamp()
+                });
+            }
         });
 
         await batch.commit();
         closeModals();
-        showToast(`Assigned ${selectedRequests.size} students successfully`, "success");
+        showToast(`Processed ${selectedRequests.size} requests successfully`, "success");
         selectedRequests.clear();
         document.getElementById('select-all-requests').checked = false;
         document.getElementById('bulk-action-bar').classList.add('hidden');
@@ -765,47 +787,56 @@ function generateUniqueToken() {
     return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 }
 
-const generateLinkHandler = async () => {
+const openGenerateModalHandler = () => {
+    document.getElementById('link-subject-select').value = ""; // reset
+    openModal('modal-generate-link');
+};
+
+const confirmGenerateLinkHandler = async () => {
     const token = generateUniqueToken();
+    const subjId = document.getElementById('link-subject-select').value;
+    const subject = allSubjects.find(s => s.id === subjId);
+    
+    if(!subject) {
+        showToast("Please select a subject first", "error");
+        return;
+    }
+
     try {
         await addDoc(collection(db, "enrollmentLinks"), {
             token: token,
             status: "active",
+            subjectId: subject.id,
+            subjectName: subject.name,
             createdAt: serverTimestamp()
         });
         
         const baseUrl = window.location.origin + window.location.pathname;
         const fullUrl = `${baseUrl}?token=${token}`;
         
-        // Show directly on dashboard box instead of modal
-        const resultBox = document.getElementById('dash-link-result');
-        const inputField = document.getElementById('dash-link-input');
+        closeModals();
+        document.getElementById('generated-link-url').value = fullUrl;
+        openModal('modal-link');
         
-        if (resultBox && inputField) {
-            inputField.value = fullUrl;
-            resultBox.classList.remove('hidden');
-        }
-        
-        showToast("Link generated successfully!", "success");
+        showToast("Auto-assign link generated!", "success");
     } catch(error) {
         console.error(error);
         showToast("Error generating link. Is Firestore enabled?", "error");
     }
 };
 
-document.getElementById('btn-generate-link-dash').addEventListener('click', generateLinkHandler);
-// Note: Other generate link buttons will also use this, but the result box is on the dashboard.
-if (document.getElementById('btn-generate-link')) document.getElementById('btn-generate-link').addEventListener('click', generateLinkHandler);
-if (document.getElementById('btn-generate-link-page')) document.getElementById('btn-generate-link-page').addEventListener('click', generateLinkHandler);
+document.getElementById('btn-generate-link-dash').addEventListener('click', openGenerateModalHandler);
+if (document.getElementById('btn-generate-link')) document.getElementById('btn-generate-link').addEventListener('click', openGenerateModalHandler);
+if (document.getElementById('btn-generate-link-page')) document.getElementById('btn-generate-link-page').addEventListener('click', openGenerateModalHandler);
 
-if (document.getElementById('dash-link-copy')) {
-    document.getElementById('dash-link-copy').addEventListener('click', () => {
-        const input = document.getElementById('dash-link-input');
-        input.select();
-        document.execCommand('copy');
-        showToast("Link copied to clipboard", "success");
-    });
-}
+document.getElementById('btn-confirm-generate').addEventListener('click', confirmGenerateLinkHandler);
+
+document.getElementById('btn-copy-link').addEventListener('click', () => {
+    const input = document.getElementById('generated-link-url');
+    input.select();
+    document.execCommand('copy');
+    showToast("Link copied to clipboard", "success");
+});
 
 window.copyLink = (token) => {
     const baseUrl = window.location.origin + window.location.pathname;
