@@ -229,23 +229,21 @@
                         </div>
                     </div>
                     
+                    <div id="bulk-action-bar" class="hidden" style="margin-bottom: 15px; padding: 15px; background: #fef2f2; border-radius: var(--radius); border: 1px solid #fca5a5;">
+                        <span id="selected-count" style="margin-right: 15px; font-weight: 500;">0 selected</span>
+                        <button class="btn-primary" id="btn-bulk-assign">Assign Selected</button>
+                        <button class="btn-outline text-red" id="btn-bulk-delete" style="color: #ef4444; border-color: #ef4444;">Delete Permanently</button>
+                    </div>
                     <div class="card">
-                        <div class="bulk-actions hidden" id="bulk-action-bar">
-                            <span id="bulk-count">0 Selected</span>
-                            <div class="bulk-buttons">
-                                <button class="btn-primary btn-sm" id="btn-bulk-assign">Assign Subject</button>
-                                <button class="btn-danger btn-sm" id="btn-bulk-reject">Reject</button>
-                            </div>
-                        </div>
                         <div class="table-responsive">
                             <table class="table" id="requests-table">
                                 <thead>
                                     <tr>
-                                        <th><input type="checkbox" id="select-all-requests"></th>
-                                        <th>Student Name</th>
+                                        <th style="width: 40px;"><input type="checkbox" id="select-all-requests"></th>
+                                        <th>Name</th>
                                         <th>Roll No</th>
-                                        <th>Date</th>
                                         <th>Status</th>
+                                        <th>Date</th>
                                         <th>Actions</th>
                                     </tr>
                                 </thead>
@@ -294,11 +292,19 @@
                             <button class="btn-primary" id="btn-download-pdf"><i class='bx bxs-file-pdf'></i> Download PDF</button>
                         </div>
                     </div>
+                    <div id="students-bulk-action-bar" class="hidden" style="margin-bottom: 15px; padding: 15px; background: #fef2f2; border-radius: var(--radius); border: 1px solid #fca5a5;">
+                        <span id="students-selected-count" style="margin-right: 15px; font-weight: 500;">0 selected</span>
+                        <button class="btn-primary" id="btn-bulk-delete-students" style="background: #ef4444; border-color: #ef4444;">Delete Selected Permanently</button>
+                    </div>
                     <div class="card">
                         <div class="table-responsive">
+                            <div class="table-header-actions" style="margin-bottom: 15px;">
+                                <input type="text" id="global-search" class="form-control" placeholder="Search students, roll numbers..." style="max-width: 300px;">
+                            </div>
                             <table class="table">
                                 <thead>
                                     <tr>
+                                        <th style="width: 40px;"><input type="checkbox" id="select-all-students"></th>
                                         <th>Pos</th>
                                         <th>Name</th>
                                         <th>Roll No</th>

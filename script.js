@@ -551,14 +551,16 @@ function renderStudentsTable() {
             return matchSearch && matchSubject;
         })
         .forEach((s, index) => {
+            const isChecked = selectedStudents.has(s.id) ? 'checked' : '';
             const tr = document.createElement('tr');
             tr.innerHTML = `
+                <td><input type="checkbox" class="student-checkbox" value="${s.id}" ${isChecked}></td>
                 <td><strong class="text-green">#${index + 1}</strong></td>
                 <td><strong>${s.name}</strong></td>
                 <td>${s.rollNumber}</td>
                 <td><span class="status-badge active">${s.subjectName}</span></td>
                 <td>
-                    <button class="btn-text text-red" onclick="removeStudent('${s.id}', '${s.requestId}')">Remove</button>
+                    <button class="btn-text text-red" onclick="removeStudent('${s.id}', '${s.requestId}')" title="Delete Permanently">Delete</button>
                 </td>
             `;
             tbody.appendChild(tr);
@@ -676,27 +678,29 @@ function attachCheckboxListeners() {
         }
     };
 
-    selectAll.addEventListener('change', (e) => {
-        if(e.target.checked) {
-            checkboxes.forEach(cb => {
-                cb.checked = true;
-                selectedRequests.add(cb.dataset.id);
-            });
-        } else {
-            checkboxes.forEach(cb => {
-                cb.checked = false;
-                selectedRequests.delete(cb.dataset.id);
-            });
-        }
-        updateBulkBar();
-    });
+    if(selectAll) {
+        selectAll.addEventListener('change', (e) => {
+            if(e.target.checked) {
+                checkboxes.forEach(cb => {
+                    cb.checked = true;
+                    selectedRequests.add(cb.value);
+                });
+            } else {
+                checkboxes.forEach(cb => {
+                    cb.checked = false;
+                    selectedRequests.delete(cb.value);
+                });
+            }
+            updateBulkBar();
+        });
+    }
 
     checkboxes.forEach(cb => {
         cb.addEventListener('change', (e) => {
-            if(e.target.checked) selectedRequests.add(e.target.dataset.id);
-            else selectedRequests.delete(e.target.dataset.id);
+            if(e.target.checked) selectedRequests.add(e.target.value);
+            else selectedRequests.delete(e.target.value);
             
-            selectAll.checked = (selectedRequests.size === checkboxes.length && checkboxes.length > 0);
+            if(selectAll) selectAll.checked = (selectedRequests.size === checkboxes.length && checkboxes.length > 0);
             updateBulkBar();
         });
     });
@@ -718,35 +722,95 @@ document.getElementById('btn-bulk-assign').addEventListener('click', () => {
     openModal('modal-assign');
 });
 
-document.getElementById('btn-bulk-reject').addEventListener('click', async () => {
-    if(!confirm(`Are you sure you want to reject ${selectedRequests.size} requests?`)) return;
+// Select All Students logic
+let selectedStudents = new Set();
+document.addEventListener('change', (e) => {
+    if (e.target.id === 'select-all-students') {
+        const checkboxes = document.querySelectorAll('.student-checkbox');
+        selectedStudents.clear();
+        if (e.target.checked) {
+            checkboxes.forEach(cb => {
+                cb.checked = true;
+                selectedStudents.add(cb.value);
+            });
+        } else {
+            checkboxes.forEach(cb => cb.checked = false);
+        }
+        updateStudentsBulkActionBar();
+    } else if (e.target.classList.contains('student-checkbox')) {
+        if (e.target.checked) {
+            selectedStudents.add(e.target.value);
+        } else {
+            selectedStudents.delete(e.target.value);
+        }
+        const total = document.querySelectorAll('.student-checkbox').length;
+        document.getElementById('select-all-students').checked = (selectedStudents.size === total && total > 0);
+        updateStudentsBulkActionBar();
+    }
+});
+
+function updateStudentsBulkActionBar() {
+    const bar = document.getElementById('students-bulk-action-bar');
+    const count = document.getElementById('students-selected-count');
+    if(selectedStudents.size > 0) {
+        bar.classList.remove('hidden');
+        count.textContent = `${selectedStudents.size} selected`;
+    } else {
+        bar.classList.add('hidden');
+    }
+}
+
+// Bulk Delete Students
+document.getElementById('btn-bulk-delete-students').addEventListener('click', async () => {
+    if(selectedStudents.size === 0) return;
+    if(!confirm(`Are you sure you want to permanently delete ${selectedStudents.size} students? This cannot be undone.`)) return;
+    
+    try {
+        const batch = writeBatch(db);
+        selectedStudents.forEach(id => {
+            batch.delete(doc(db, "students", id));
+            const student = allStudents.find(s => s.id === id);
+            if(student && student.requestId) {
+                batch.delete(doc(db, "enrollmentRequests", student.requestId));
+            }
+        });
+        await batch.commit();
+        showToast(`Deleted ${selectedStudents.size} students permanently`, "success");
+        selectedStudents.clear();
+        document.getElementById('select-all-students').checked = false;
+        document.getElementById('students-bulk-action-bar').classList.add('hidden');
+    } catch(err) {
+        showToast("Error deleting students", "error");
+    }
+});
+
+// Bulk Delete Requests
+document.getElementById('btn-bulk-delete').addEventListener('click', async () => {
+    if(selectedRequests.size === 0) return;
+    if(!confirm(`Are you sure you want to permanently delete ${selectedRequests.size} requests?`)) return;
     
     try {
         const batch = writeBatch(db);
         selectedRequests.forEach(id => {
-            const reqRef = doc(db, "enrollmentRequests", id);
-            batch.update(reqRef, { status: 'rejected', rejectedAt: serverTimestamp() });
+            batch.delete(doc(db, "enrollmentRequests", id));
         });
         await batch.commit();
-        showToast("Requests rejected successfully", "success");
+        showToast(`Deleted ${selectedRequests.size} requests permanently`, "success");
         selectedRequests.clear();
         document.getElementById('select-all-requests').checked = false;
         document.getElementById('bulk-action-bar').classList.add('hidden');
     } catch(err) {
-        showToast("Error rejecting requests", "error");
+        showToast("Error deleting requests", "error");
     }
 });
 
-window.rejectRequest = async (reqId) => {
-    if(!confirm("Are you sure you want to reject this request?")) return;
+window.deleteRequest = async (reqId) => {
+    if(!confirm("Are you sure you want to permanently delete this request?")) return;
     try {
-        await updateDoc(doc(db, "enrollmentRequests", reqId), {
-            status: 'rejected',
-            rejectedAt: serverTimestamp()
-        });
-        showToast("Request rejected", "success");
+        await deleteDoc(doc(db, "enrollmentRequests", reqId));
+        showToast("Request deleted", "success");
     } catch(err) {
-        showToast("Error rejecting request", "error");
+        showToast("Error deleting request", "error");
     }
 };
 
@@ -807,7 +871,7 @@ window.removeStudent = async (studentId, requestId) => {
         const batch = writeBatch(db);
         batch.delete(doc(db, "students", studentId));
         if(requestId) {
-            batch.update(doc(db, "enrollmentRequests", requestId), { status: 'rejected' });
+            batch.delete(doc(db, "enrollmentRequests", requestId));
         }
         await batch.commit();
         showToast("Student removed successfully", "success");
