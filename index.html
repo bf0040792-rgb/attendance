@@ -197,9 +197,6 @@
                         </div>
                         <div class="card">
                             <div class="table-responsive">
-                                <div class="table-header-actions" style="margin-bottom: 15px;">
-                                    <input type="text" id="global-search" class="form-control" placeholder="Search students, roll numbers..." style="max-width: 300px;">
-                                </div>
                                 <table class="table">
                                     <thead>
                                         <tr>
@@ -299,7 +296,7 @@
                     <div class="card">
                         <div class="table-responsive">
                             <div class="table-header-actions" style="margin-bottom: 15px;">
-                                <input type="text" id="global-search" class="form-control" placeholder="Search students, roll numbers..." style="max-width: 300px;">
+                                <input type="text" id="students-search" class="form-control" placeholder="Search students, roll numbers..." style="max-width: 300px;">
                             </div>
                             <table class="table">
                                 <thead>
@@ -432,6 +429,34 @@
                     <div class="modal-actions">
                         <button type="button" class="btn-outline close-modal-btn" onclick="closeModals()">Cancel</button>
                         <button type="submit" class="btn-primary">Save</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Student Modal -->
+    <div id="modal-edit-student" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Edit Student</h2>
+                <button class="close-modal" onclick="closeModals()"><i class='bx bx-x'></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="form-edit-student">
+                    <input type="hidden" id="edit-student-id">
+                    <input type="hidden" id="edit-request-id">
+                    <div class="form-group">
+                        <label>Student Name</label>
+                        <input type="text" id="edit-student-name" class="form-control" required style="text-transform: uppercase;">
+                    </div>
+                    <div class="form-group">
+                        <label>Roll Number</label>
+                        <input type="number" id="edit-student-roll" class="form-control" required>
+                    </div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn-outline close-modal-btn" onclick="closeModals()">Cancel</button>
+                        <button type="submit" class="btn-primary">Save Changes</button>
                     </div>
                 </form>
             </div>

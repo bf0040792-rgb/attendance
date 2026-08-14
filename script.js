@@ -454,7 +454,8 @@ function renderDashRecentStudents() {
 function renderRequestsTable() {
     const tbody = document.getElementById('requests-tbody');
     const filterStatus = document.getElementById('request-status-filter').value;
-    const searchTerm = document.getElementById('global-search').value.toLowerCase();
+    const searchInput = document.getElementById('global-search');
+    const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
     
     tbody.innerHTML = '';
     
@@ -462,25 +463,20 @@ function renderRequestsTable() {
         .filter(r => filterStatus === 'all' || r.status === filterStatus)
         .filter(r => r.studentName.toLowerCase().includes(searchTerm) || String(r.rollNumber).includes(searchTerm))
         .forEach(req => {
-            const date = req.createdAt ? req.createdAt.toDate().toLocaleString() : 'N/A';
+            const date = req.createdAt ? req.createdAt.toDate().toLocaleDateString() : 'N/A';
             const tr = document.createElement('tr');
             
             const isChecked = selectedRequests.has(req.id) ? 'checked' : '';
-            const canSelect = req.status === 'pending';
             
             tr.innerHTML = `
-                <td>
-                    ${canSelect ? `<input type="checkbox" class="req-checkbox" data-id="${req.id}" ${isChecked}>` : ''}
-                </td>
+                <td><input type="checkbox" class="req-checkbox" value="${req.id}" ${isChecked}></td>
                 <td><strong>${req.studentName}</strong></td>
                 <td>${req.rollNumber}</td>
+                <td><span class="status-badge ${req.status}">${req.status.toUpperCase()}</span></td>
                 <td>${date}</td>
-                <td><span class="status-badge ${req.status}">${req.status}</span></td>
                 <td>
-                    ${req.status === 'pending' ? `
-                        <button class="btn-outline btn-sm" onclick="singleAssign('${req.id}')">Assign</button>
-                        <button class="btn-outline btn-sm text-red" onclick="rejectRequest('${req.id}')">Reject</button>
-                    ` : `<span class="text-muted">Processed</span>`}
+                    ${req.status === 'pending' ? `<button class="btn-text" onclick="singleAssign('${req.id}')" style="margin-right: 5px;">Assign</button>` : ''}
+                    <button class="btn-text text-red" onclick="deleteRequest('${req.id}')" title="Delete Permanently">Delete</button>
                 </td>
             `;
             tbody.appendChild(tr);
@@ -536,7 +532,7 @@ function updateSubjectSelects() {
 
 function renderStudentsTable() {
     const tbody = document.getElementById('students-tbody');
-    const searchTerm = document.getElementById('global-search').value.toLowerCase();
+    const searchTerm = document.getElementById('students-search') ? document.getElementById('students-search').value.toLowerCase() : '';
     const filterSubjectId = document.getElementById('filter-subject').value;
     
     tbody.innerHTML = '';
@@ -668,13 +664,14 @@ function attachCheckboxListeners() {
     const selectAll = document.getElementById('select-all-requests');
     const checkboxes = document.querySelectorAll('.req-checkbox');
     const bulkBar = document.getElementById('bulk-action-bar');
-    const bulkCount = document.getElementById('bulk-count');
+    const bulkCount = document.getElementById('selected-count');
 
     function updateBulkBar() {
         if(selectedRequests.size > 0) {
             bulkBar.classList.remove('hidden');
-            bulkCount.textContent = `${selectedRequests.size} Selected`;
-            if (currentTabStatus === 'pending') {
+            if(bulkCount) bulkCount.textContent = `${selectedRequests.size} selected`;
+            const tab = document.getElementById('request-status-filter').value;
+            if (tab === 'pending' || tab === 'all') {
                 document.getElementById('btn-bulk-assign').classList.remove('hidden');
             } else {
                 document.getElementById('btn-bulk-assign').classList.add('hidden');
@@ -1117,8 +1114,11 @@ function showToast(message, type = "success") {
 
 document.getElementById('global-search').addEventListener('input', () => {
     renderRequestsTable();
-    renderStudentsTable();
 });
+
+if (document.getElementById('students-search')) {
+    document.getElementById('students-search').addEventListener('input', renderStudentsTable);
+}
 
 document.getElementById('request-status-filter').addEventListener('change', () => {
     renderRequestsTable();
