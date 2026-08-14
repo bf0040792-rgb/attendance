@@ -405,8 +405,11 @@ function setupRealtimeListeners() {
                 <td><span class="status-badge ${statusClass}">${data.status}</span></td>
                 <td>
                     <button class="btn-text" onclick="copyLink('${data.token}')">Copy Link</button>
-                    <button class="btn-text text-red" style="margin-left:10px" onclick="toggleLinkStatus('${doc.id}', '${data.status}')">
+                    <button class="btn-text" style="margin-left:10px" onclick="toggleLinkStatus('${doc.id}', '${data.status}')">
                         ${data.status === 'active' ? 'Deactivate' : 'Activate'}
+                    </button>
+                    <button class="btn-text text-red" style="margin-left:10px" onclick="deleteLink('${doc.id}')" title="Delete Permanently">
+                        <i class='bx bx-trash'></i>
                     </button>
                 </td>
             `;
@@ -931,9 +934,21 @@ window.toggleLinkStatus = async (linkId, currentStatus) => {
     const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
     try {
         await updateDoc(doc(db, "enrollmentLinks", linkId), { status: newStatus });
-        showToast(`Link ${newStatus}`, "success");
+        showToast(`Link ${newStatus} successfully`, "success");
     } catch(err) {
         showToast("Error updating link", "error");
+    }
+};
+
+window.deleteLink = async (linkId) => {
+    if (confirm("Are you sure you want to permanently delete this link?")) {
+        try {
+            await deleteDoc(doc(db, "enrollmentLinks", linkId));
+            showToast("Link deleted permanently", "success");
+        } catch(err) {
+            console.error(err);
+            showToast("Error deleting link", "error");
+        }
     }
 };
 
