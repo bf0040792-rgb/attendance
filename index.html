@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>School Management & Smart Enrollment</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href='https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css' rel='stylesheet'>
+</head>
+<body>
+    <!-- Toast Container -->
+    <div id="toast-container"></div>
+
+    <!-- Loader -->
+    <div id="global-loader" class="global-loader">
+        <div class="spinner-large"></div>
+    </div>
+
+    <!-- Student Enrollment View -->
+    <div id="student-view" class="hidden">
+        <div class="enrollment-card">
+            <div class="brand">
+                <div class="brand-icon"><i class='bx bxs-graduation'></i></div>
+                <h2>Student Enrollment</h2>
+            </div>
+            <div id="student-form-container">
+                <p class="subtitle">Welcome! Please submit your enrollment request below.</p>
+                <form id="enrollment-form">
+                    <div class="form-group">
+                        <label for="student-name">Full Name</label>
+                        <div class="input-with-icon">
+                            <i class='bx bx-user'></i>
+                            <input type="text" id="student-name" placeholder="Enter Your Name" required>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="student-roll">Roll Number</label>
+                        <div class="input-with-icon">
+                            <i class='bx bx-id-card'></i>
+                            <input type="number" id="student-roll" placeholder="Enter Your Roll Number" required>
+                        </div>
+                    </div>
+                    <button type="submit" class="btn-primary btn-block" id="btn-submit-enrollment">
+                        <span id="enrollment-btn-text">Submit Request</span>
+                        <div class="spinner hidden" id="enrollment-spinner"></div>
+                    </button>
+                </form>
+            </div>
+            <div id="student-success-container" class="hidden">
+                <div class="success-icon"><i class='bx bx-check-circle'></i></div>
+                <h3>Success!</h3>
+                <p>Your enrollment request has been submitted successfully. The administration will process it shortly.</p>
+            </div>
+            <div id="student-error-container" class="hidden">
+                <div class="error-icon"><i class='bx bx-x-circle'></i></div>
+                <h3>Invalid Link</h3>
+                <p id="student-error-msg">This enrollment link is invalid or has expired.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Admin Login View -->
+    <div id="login-view" class="hidden">
+        <div class="login-card">
+            <div class="brand">
+                <div class="brand-icon"><i class='bx bxs-school'></i></div>
+                <h2>Admin Portal</h2>
+            </div>
+            <p class="subtitle">Enter your credentials to access the dashboard</p>
+            <form id="login-form">
+                <div class="form-group">
+                    <label for="login-email">User ID / Email</label>
+                    <div class="input-with-icon">
+                        <i class='bx bx-envelope'></i>
+                        <input type="email" id="login-email" placeholder="admin@school.com" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="login-password">Password</label>
+                    <div class="input-with-icon">
+                        <i class='bx bx-lock-alt'></i>
+                        <input type="password" id="login-password" placeholder="••••••••" required>
+                        <i class='bx bx-hide toggle-password' id="toggle-pwd"></i>
+                    </div>
+                </div>
+                <div id="login-error" class="error-text"></div>
+                <button type="submit" class="btn-primary btn-block" id="btn-login">
+                    <span id="login-btn-text">Log In</span>
+                    <div class="spinner hidden" id="login-spinner"></div>
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Admin Dashboard View -->
+    <div id="admin-view" class="hidden">
+        <nav class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="brand-icon-small"><i class='bx bxs-school'></i></div>
+                <span>EduAdmin</span>
+                <i class='bx bx-x' id="mobile-menu-close"></i>
+            </div>
+            <ul class="nav-links">
+                <li class="active" data-target="dashboard-section"><i class='bx bx-grid-alt'></i> <span>Dashboard</span></li>
+                <li data-target="requests-section"><i class='bx bx-list-check'></i> <span>Requests</span> <span class="badge" id="nav-pending-badge">0</span></li>
+                <li data-target="subjects-section"><i class='bx bx-book'></i> <span>Subjects</span></li>
+                <li data-target="students-section"><i class='bx bx-group'></i> <span>Students</span></li>
+                <li data-target="links-section"><i class='bx bx-link'></i> <span>Enrollment Links</span></li>
+                <li data-target="analytics-section"><i class='bx bx-pie-chart-alt-2'></i> <span>Analytics</span></li>
+            </ul>
+            <div class="sidebar-footer">
+                <button id="btn-logout" class="btn-outline btn-block"><i class='bx bx-log-out'></i> <span>Logout</span></button>
+            </div>
+        </nav>
+
+        <main class="main-content">
+            <header class="topbar">
+                <div class="topbar-left">
+                    <i class='bx bx-menu' id="mobile-menu-toggle"></i>
+                    <div class="search-bar">
+                        <i class='bx bx-search'></i>
+                        <input type="text" id="global-search" placeholder="Search students, roll numbers...">
+                    </div>
+                </div>
+                <div class="user-info">
+                    <span id="admin-user-email">admin</span>
+                    <div class="avatar"><i class='bx bxs-user'></i></div>
+                </div>
+            </header>
+
+            <div class="content-wrapper">
+                <!-- Dashboard Section -->
+                <section id="dashboard-section" class="page-section active">
+                    <div class="section-header">
+                        <div>
+                            <h2>Dashboard Overview</h2>
+                            <p class="text-muted">Welcome back! Here's what's happening today.</p>
+                        </div>
+                        <button class="btn-primary" id="btn-generate-link-dash"><i class='bx bx-link-external'></i> Generate Link</button>
+                    </div>
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-icon blue"><i class='bx bx-group'></i></div>
+                            <div class="stat-info">
+                                <h3>Total Students</h3>
+                                <p id="stat-total-students">0</p>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon purple"><i class='bx bx-book'></i></div>
+                            <div class="stat-info">
+                                <h3>Total Subjects</h3>
+                                <p id="stat-total-subjects">0</p>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon orange"><i class='bx bx-time'></i></div>
+                            <div class="stat-info">
+                                <h3>Pending Requests</h3>
+                                <p id="stat-pending-requests">0</p>
+                            </div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon green"><i class='bx bx-check'></i></div>
+                            <div class="stat-info">
+                                <h3>Today's Requests</h3>
+                                <p id="stat-today-requests">0</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="dashboard-tables">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Recent Requests</h3>
+                                <button class="btn-text btn-nav" data-target="requests-section">View All</button>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table">
+                                    <thead>
+                                        <tr>
+                                            <th>Name</th>
+                                            <th>Roll No</th>
+                                            <th>Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="dash-recent-requests">
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>Recently Enrolled</h3>
+                                <button class="btn-text btn-nav" data-target="students-section">View All</button>
+                            </div>
+                            <div class="table-responsive">
+                                <table class="table">
+                                    <thead>
+                                        <tr>
+                                            <th>Name</th>
+                                            <th>Subject</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="dash-recent-students">
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Requests Section -->
+                <section id="requests-section" class="page-section">
+                    <div class="section-header">
+                        <h2>Enrollment Requests</h2>
+                        <div class="filters">
+                            <select id="request-status-filter" class="form-select">
+                                <option value="all">All Status</option>
+                                <option value="pending">Pending</option>
+                                <option value="accepted">Accepted</option>
+                                <option value="rejected">Rejected</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="card">
+                        <div class="bulk-actions hidden" id="bulk-action-bar">
+                            <span id="bulk-count">0 Selected</span>
+                            <div class="bulk-buttons">
+                                <button class="btn-primary btn-sm" id="btn-bulk-assign">Assign Subject</button>
+                                <button class="btn-danger btn-sm" id="btn-bulk-reject">Reject</button>
+                            </div>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table" id="requests-table">
+                                <thead>
+                                    <tr>
+                                        <th><input type="checkbox" id="select-all-requests"></th>
+                                        <th>Student Name</th>
+                                        <th>Roll No</th>
+                                        <th>Date</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="requests-tbody">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Subjects Section -->
+                <section id="subjects-section" class="page-section">
+                    <div class="section-header">
+                        <h2>Subjects</h2>
+                        <button class="btn-primary" id="btn-create-subject"><i class='bx bx-plus'></i> Add Subject</button>
+                    </div>
+                    <div class="card">
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Subject Name</th>
+                                        <th>Description</th>
+                                        <th>Enrolled</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="subjects-tbody">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Students Section -->
+                <section id="students-section" class="page-section">
+                    <div class="section-header">
+                        <div>
+                            <h2>Students</h2>
+                            <p class="text-muted"><i class='bx bx-bot'></i> Smart Roll Sequence Active</p>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Smart Pos</th>
+                                        <th>Name</th>
+                                        <th>Roll No</th>
+                                        <th>Subject</th>
+                                        <th>Digit Freq</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="students-tbody">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Links Section -->
+                <section id="links-section" class="page-section">
+                    <div class="section-header">
+                        <h2>Generated Links</h2>
+                        <button class="btn-primary" id="btn-generate-link-page"><i class='bx bx-plus'></i> New Link</button>
+                    </div>
+                    <div class="card">
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Token</th>
+                                        <th>Created At</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="links-tbody">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Analytics Section -->
+                <section id="analytics-section" class="page-section">
+                    <div class="section-header">
+                        <h2>Analytics</h2>
+                    </div>
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <h3>Accepted All Time</h3>
+                            <h2 id="analytics-accepted" class="text-green">0</h2>
+                        </div>
+                        <div class="stat-card">
+                            <h3>Rejected All Time</h3>
+                            <h2 id="analytics-rejected" class="text-red">0</h2>
+                        </div>
+                    </div>
+                    <div class="card mt-2">
+                        <h3>Smart Sequence Frequency Distribution (Final Digit)</h3>
+                        <div class="chart-container" id="digit-chart">
+                            <!-- JS will generate bars here -->
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modals -->
+    <div class="modal-backdrop hidden" id="modal-backdrop"></div>
+
+    <!-- Link Generated Modal -->
+    <div id="modal-link" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Enrollment Link</h2>
+                <button class="close-modal"><i class='bx bx-x'></i></button>
+            </div>
+            <div class="modal-body">
+                <p>Share this link with students. They will be able to submit their enrollment requests.</p>
+                <div class="copy-box">
+                    <input type="text" id="generated-link-url" readonly>
+                    <button class="btn-secondary" id="btn-copy-link"><i class='bx bx-copy'></i></button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create Subject Modal -->
+    <div id="modal-subject" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Create Subject</h2>
+                <button class="close-modal"><i class='bx bx-x'></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="form-subject">
+                    <div class="form-group">
+                        <label>Subject Name</label>
+                        <input type="text" id="subj-name" class="form-control" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Description</label>
+                        <input type="text" id="subj-desc" class="form-control">
+                    </div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn-outline close-modal-btn">Cancel</button>
+                        <button type="submit" class="btn-primary">Save</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Assign Subject Modal -->
+    <div id="modal-assign" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Assign Subject</h2>
+                <button class="close-modal"><i class='bx bx-x'></i></button>
+            </div>
+            <div class="modal-body">
+                <p id="assign-count-text" class="mb-1 text-muted"></p>
+                <form id="form-assign">
+                    <div class="form-group">
+                        <label>Select Subject</label>
+                        <select id="assign-subject-select" class="form-select" required>
+                            <option value="">-- Choose Subject --</option>
+                        </select>
+                    </div>
+                    <div class="modal-actions">
+                        <button type="button" class="btn-outline close-modal-btn">Cancel</button>
+                        <button type="submit" class="btn-primary">Confirm</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script type="module" src="script.js"></script>
+</body>
+</html>

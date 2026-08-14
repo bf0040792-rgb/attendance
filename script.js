@@ -1,0 +1,855 @@
+// ======================================================
+// FIREBASE CONFIGURATION
+// Replace ONLY the placeholder values below with your
+// Firebase project configuration.
+// ======================================================
+
+const firebaseConfig = {
+    apiKey: "PASTE_YOUR_API_KEY_HERE",
+    authDomain: "PASTE_YOUR_AUTH_DOMAIN_HERE",
+    projectId: "PASTE_YOUR_PROJECT_ID_HERE",
+    storageBucket: "PASTE_YOUR_STORAGE_BUCKET_HERE",
+    messagingSenderId: "PASTE_YOUR_MESSAGING_SENDER_ID_HERE",
+    appId: "PASTE_YOUR_APP_ID_HERE"
+};
+
+// Import Firebase SDKs from CDN
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+import { 
+    getAuth, 
+    signInWithEmailAndPassword, 
+    signOut, 
+    onAuthStateChanged 
+} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+import { 
+    getFirestore, 
+    collection, 
+    addDoc, 
+    getDocs, 
+    getDoc,
+    doc,
+    updateDoc, 
+    deleteDoc, 
+    query, 
+    where,
+    orderBy,
+    onSnapshot,
+    serverTimestamp,
+    writeBatch
+} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+// State Variables
+let currentAdmin = null;
+let currentEnrollmentToken = null;
+let allStudents = [];
+let allRequests = [];
+let allSubjects = [];
+let selectedRequests = new Set();
+let unsubscribeListeners = [];
+
+// DOM Elements
+const views = {
+    loader: document.getElementById('global-loader'),
+    login: document.getElementById('login-view'),
+    admin: document.getElementById('admin-view'),
+    student: document.getElementById('student-view')
+};
+
+// Init Application Routing
+window.addEventListener('DOMContentLoaded', () => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+
+    if (token) {
+        // Student Enrollment View
+        currentEnrollmentToken = token;
+        validateEnrollmentToken(token);
+    } else {
+        // Admin Auth Flow
+        setupAuthObserver();
+    }
+});
+
+// ======================================================
+// AUTHENTICATION & ROUTING
+// ======================================================
+
+function setupAuthObserver() {
+    onAuthStateChanged(auth, (user) => {
+        hideLoader();
+        if (user) {
+            currentAdmin = user;
+            document.getElementById('admin-user-email').textContent = user.email;
+            showView('admin');
+            initAdminDashboard();
+        } else {
+            currentAdmin = null;
+            showView('login');
+        }
+    });
+}
+
+function showView(viewName) {
+    Object.values(views).forEach(v => {
+        if(v && !v.classList.contains('global-loader')) v.classList.add('hidden');
+    });
+    if(views[viewName]) views[viewName].classList.remove('hidden');
+}
+
+function hideLoader() {
+    if(views.loader) views.loader.classList.add('hidden');
+}
+
+// Login Logic
+document.getElementById('login-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('login-email').value;
+    const pwd = document.getElementById('login-password').value;
+    const errorEl = document.getElementById('login-error');
+    const btnText = document.getElementById('login-btn-text');
+    const spinner = document.getElementById('login-spinner');
+    
+    errorEl.textContent = '';
+    btnText.classList.add('hidden');
+    spinner.classList.remove('hidden');
+
+    try {
+        await signInWithEmailAndPassword(auth, email, pwd);
+        // Observer will handle redirect
+    } catch (error) {
+        let msg = "Invalid credentials. Please try again.";
+        if(error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+            msg = "Incorrect email or password.";
+        } else if (error.code === 'auth/too-many-requests') {
+            msg = "Too many attempts. Try again later.";
+        }
+        errorEl.textContent = msg;
+        btnText.classList.remove('hidden');
+        spinner.classList.add('hidden');
+    }
+});
+
+// Toggle Password
+document.getElementById('toggle-pwd').addEventListener('click', (e) => {
+    const pwdInput = document.getElementById('login-password');
+    if (pwdInput.type === 'password') {
+        pwdInput.type = 'text';
+        e.target.classList.replace('bx-hide', 'bx-show');
+    } else {
+        pwdInput.type = 'password';
+        e.target.classList.replace('bx-show', 'bx-hide');
+    }
+});
+
+// Logout
+document.getElementById('btn-logout').addEventListener('click', async () => {
+    try {
+        unsubscribeAll();
+        await signOut(auth);
+    } catch(err) {
+        showToast("Error logging out", "error");
+    }
+});
+
+// ======================================================
+// STUDENT ENROLLMENT LOGIC (PUBLIC)
+// ======================================================
+
+async function validateEnrollmentToken(token) {
+    try {
+        const q = query(collection(db, "enrollmentLinks"), where("token", "==", token), where("status", "==", "active"));
+        const snapshot = await getDocs(q);
+        
+        hideLoader();
+        showView('student');
+        
+        if (snapshot.empty) {
+            document.getElementById('student-form-container').classList.add('hidden');
+            document.getElementById('student-error-container').classList.remove('hidden');
+        } else {
+            // Valid token
+            document.getElementById('student-form-container').classList.remove('hidden');
+        }
+    } catch (error) {
+        hideLoader();
+        showView('student');
+        document.getElementById('student-form-container').classList.add('hidden');
+        document.getElementById('student-error-container').classList.remove('hidden');
+        document.getElementById('student-error-msg').textContent = "Connection error. Please try again later.";
+    }
+}
+
+document.getElementById('enrollment-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = document.getElementById('student-name').value.trim();
+    const roll = document.getElementById('student-roll').value.trim();
+    
+    if(!name || !roll) return;
+
+    const btnText = document.getElementById('enrollment-btn-text');
+    const spinner = document.getElementById('enrollment-spinner');
+    
+    btnText.classList.add('hidden');
+    spinner.classList.remove('hidden');
+    document.getElementById('btn-submit-enrollment').disabled = true;
+
+    try {
+        await addDoc(collection(db, "enrollmentRequests"), {
+            studentName: name,
+            rollNumber: parseInt(roll, 10),
+            enrollmentToken: currentEnrollmentToken,
+            status: "pending",
+            createdAt: serverTimestamp()
+        });
+
+        document.getElementById('student-form-container').classList.add('hidden');
+        document.getElementById('student-success-container').classList.remove('hidden');
+    } catch (error) {
+        showToast("Error submitting request. Please try again.", "error");
+        btnText.classList.remove('hidden');
+        spinner.classList.add('hidden');
+        document.getElementById('btn-submit-enrollment').disabled = false;
+    }
+});
+
+// ======================================================
+// ADMIN DASHBOARD CORE LOGIC
+// ======================================================
+
+function initAdminDashboard() {
+    setupNavigation();
+    setupRealtimeListeners();
+    setupModals();
+    setupSearchAndFilters();
+}
+
+function unsubscribeAll() {
+    unsubscribeListeners.forEach(unsub => unsub());
+    unsubscribeListeners = [];
+}
+
+// Navigation
+function setupNavigation() {
+    const navLinks = document.querySelectorAll('.nav-links li, .btn-nav');
+    navLinks.forEach(link => {
+        link.addEventListener('click', (e) => {
+            const targetId = e.currentTarget.getAttribute('data-target');
+            if(!targetId) return;
+            
+            // Handle sidebar active state
+            if(e.currentTarget.tagName === 'LI') {
+                document.querySelectorAll('.nav-links li').forEach(l => l.classList.remove('active'));
+                e.currentTarget.classList.add('active');
+            } else {
+                // If clicked from a button, sync sidebar
+                document.querySelectorAll('.nav-links li').forEach(l => {
+                    l.classList.remove('active');
+                    if(l.getAttribute('data-target') === targetId) l.classList.add('active');
+                });
+            }
+
+            // Show target section
+            document.querySelectorAll('.page-section').forEach(sec => sec.classList.remove('active'));
+            document.getElementById(targetId).classList.add('active');
+            
+            // Close mobile menu
+            document.getElementById('sidebar').classList.remove('open');
+        });
+    });
+
+    document.getElementById('mobile-menu-toggle').addEventListener('click', () => {
+        document.getElementById('sidebar').classList.add('open');
+    });
+    document.getElementById('mobile-menu-close').addEventListener('click', () => {
+        document.getElementById('sidebar').classList.remove('open');
+    });
+}
+
+// ======================================================
+// REALTIME DATA LISTENERS
+// ======================================================
+
+function setupRealtimeListeners() {
+    // 1. Listen to Requests
+    const reqQ = query(collection(db, "enrollmentRequests"), orderBy("createdAt", "desc"));
+    const unsubReq = onSnapshot(reqQ, (snapshot) => {
+        allRequests = [];
+        let pendingCount = 0;
+        let todayCount = 0;
+        let acceptedTotal = 0;
+        let rejectedTotal = 0;
+        
+        const today = new Date();
+        today.setHours(0,0,0,0);
+
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            const req = { id: doc.id, ...data };
+            allRequests.push(req);
+            
+            if(req.status === 'pending') pendingCount++;
+            if(req.status === 'accepted') acceptedTotal++;
+            if(req.status === 'rejected') rejectedTotal++;
+            
+            if(req.createdAt && req.createdAt.toDate() >= today) {
+                todayCount++;
+            }
+        });
+
+        // Update Dashboard Stats
+        document.getElementById('stat-pending-requests').textContent = pendingCount;
+        document.getElementById('stat-today-requests').textContent = todayCount;
+        document.getElementById('nav-pending-badge').textContent = pendingCount;
+        
+        // Analytics
+        document.getElementById('analytics-today').textContent = todayCount;
+        document.getElementById('analytics-accepted').textContent = acceptedTotal;
+        document.getElementById('analytics-rejected').textContent = rejectedTotal;
+
+        renderRequestsTable();
+        renderDashRecentRequests();
+    }, (error) => {
+        console.error("Firebase Rule Error or Connection Error:", error);
+    });
+    
+    // 2. Listen to Subjects
+    const subjQ = query(collection(db, "subjects"), orderBy("createdAt", "desc"));
+    const unsubSubj = onSnapshot(subjQ, (snapshot) => {
+        allSubjects = [];
+        snapshot.forEach(doc => allSubjects.push({ id: doc.id, ...doc.data() }));
+        document.getElementById('stat-total-subjects').textContent = allSubjects.length;
+        renderSubjectsTable();
+        updateSubjectSelects();
+    });
+
+    // 3. Listen to Students (Accepted Requests essentially, or separate Students collection)
+    const studQ = query(collection(db, "students"), orderBy("enrolledAt", "desc"));
+    const unsubStud = onSnapshot(studQ, (snapshot) => {
+        allStudents = [];
+        snapshot.forEach(doc => allStudents.push({ id: doc.id, ...doc.data() }));
+        document.getElementById('stat-total-students').textContent = allStudents.length;
+        renderStudentsTable();
+        renderDashRecentStudents();
+        renderDigitChart();
+    });
+
+    // 4. Listen to Links
+    const linkQ = query(collection(db, "enrollmentLinks"), orderBy("createdAt", "desc"));
+    const unsubLink = onSnapshot(linkQ, (snapshot) => {
+        const linksBody = document.getElementById('links-tbody');
+        linksBody.innerHTML = '';
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            const date = data.createdAt ? data.createdAt.toDate().toLocaleDateString() : 'N/A';
+            const statusClass = data.status === 'active' ? 'active' : 'inactive';
+            
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><code>${data.token.substring(0,8)}...</code></td>
+                <td>${date}</td>
+                <td><span class="status-badge ${statusClass}">${data.status}</span></td>
+                <td>
+                    <button class="btn-text" onclick="copyLink('${data.token}')">Copy Link</button>
+                    <button class="btn-text text-red" style="margin-left:10px" onclick="toggleLinkStatus('${doc.id}', '${data.status}')">
+                        ${data.status === 'active' ? 'Deactivate' : 'Activate'}
+                    </button>
+                </td>
+            `;
+            linksBody.appendChild(tr);
+        });
+    });
+
+    unsubscribeListeners.push(unsubReq, unsubSubj, unsubStud, unsubLink);
+}
+
+// ======================================================
+// RENDER FUNCTIONS
+// ======================================================
+
+function renderDashRecentRequests() {
+    const tbody = document.getElementById('dash-recent-requests');
+    tbody.innerHTML = '';
+    allRequests.slice(0, 5).forEach(req => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${req.studentName}</td>
+            <td>${req.rollNumber}</td>
+            <td><span class="status-badge ${req.status}">${req.status}</span></td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+function renderDashRecentStudents() {
+    const tbody = document.getElementById('dash-recent-students');
+    tbody.innerHTML = '';
+    allStudents.slice(0, 5).forEach(s => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${s.name}</td>
+            <td>${s.subjectName}</td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+function renderRequestsTable() {
+    const tbody = document.getElementById('requests-tbody');
+    const filterStatus = document.getElementById('request-status-filter').value;
+    const searchTerm = document.getElementById('global-search').value.toLowerCase();
+    
+    tbody.innerHTML = '';
+    
+    allRequests
+        .filter(r => filterStatus === 'all' || r.status === filterStatus)
+        .filter(r => r.studentName.toLowerCase().includes(searchTerm) || String(r.rollNumber).includes(searchTerm))
+        .forEach(req => {
+            const date = req.createdAt ? req.createdAt.toDate().toLocaleString() : 'N/A';
+            const tr = document.createElement('tr');
+            
+            const isChecked = selectedRequests.has(req.id) ? 'checked' : '';
+            const canSelect = req.status === 'pending';
+            
+            tr.innerHTML = `
+                <td>
+                    ${canSelect ? `<input type="checkbox" class="req-checkbox" data-id="${req.id}" ${isChecked}>` : ''}
+                </td>
+                <td><strong>${req.studentName}</strong></td>
+                <td>${req.rollNumber}</td>
+                <td>${date}</td>
+                <td><span class="status-badge ${req.status}">${req.status}</span></td>
+                <td>
+                    ${req.status === 'pending' ? `
+                        <button class="btn-outline btn-sm" onclick="singleAssign('${req.id}')">Assign</button>
+                        <button class="btn-outline btn-sm text-red" onclick="rejectRequest('${req.id}')">Reject</button>
+                    ` : `<span class="text-muted">Processed</span>`}
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+    attachCheckboxListeners();
+}
+
+function renderSubjectsTable() {
+    const tbody = document.getElementById('subjects-tbody');
+    tbody.innerHTML = '';
+    allSubjects.forEach(sub => {
+        const enrolledCount = allStudents.filter(s => s.subjectId === sub.id).length;
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td><strong>${sub.name}</strong></td>
+            <td>${sub.description || '-'}</td>
+            <td>${enrolledCount} students</td>
+            <td>
+                <button class="btn-text text-red" onclick="deleteSubject('${sub.id}', ${enrolledCount})">Delete</button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
+
+function updateSubjectSelects() {
+    const select = document.getElementById('assign-subject-select');
+    select.innerHTML = '<option value="">-- Choose Subject --</option>';
+    allSubjects.forEach(sub => {
+        const opt = document.createElement('option');
+        opt.value = sub.id;
+        opt.textContent = sub.name;
+        select.appendChild(opt);
+    });
+}
+
+// ======================================================
+// SMART ROLL SEQUENCE ENGINE
+// ======================================================
+
+function renderStudentsTable() {
+    const tbody = document.getElementById('students-tbody');
+    const searchTerm = document.getElementById('global-search').value.toLowerCase();
+    tbody.innerHTML = '';
+
+    // Calculate Smart Sequence
+    const processedStudents = calculateSmartSequence(allStudents);
+
+    processedStudents
+        .filter(s => s.name.toLowerCase().includes(searchTerm) || String(s.rollNumber).includes(searchTerm))
+        .forEach(s => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td><strong class="text-green">#${s.smartPosition}</strong></td>
+                <td><strong>${s.name}</strong></td>
+                <td>${s.rollNumber}</td>
+                <td><span class="status-badge active">${s.subjectName}</span></td>
+                <td>Digit <b>${s._lastDigit}</b> (Freq: ${s.frequency})</td>
+                <td>
+                    <button class="btn-text text-red" onclick="removeStudent('${s.id}', '${s.requestId}')">Remove</button>
+                </td>
+            `;
+            tbody.appendChild(tr);
+        });
+}
+
+/**
+ * Smart Roll Sequence Engine logic
+ * Organizes students based on the frequency of the final digit of their roll number.
+ */
+function calculateSmartSequence(students) {
+    const freq = {};
+    
+    // 1. Extract final digit and calculate frequency
+    students.forEach(s => {
+        const strRoll = String(s.rollNumber);
+        const lastDigit = strRoll.slice(-1);
+        freq[lastDigit] = (freq[lastDigit] || 0) + 1;
+        s._lastDigit = lastDigit;
+    });
+
+    // 2. Sort by frequency (highest first), then by complete roll number
+    const sorted = [...students].sort((a, b) => {
+        const freqDiff = freq[b._lastDigit] - freq[a._lastDigit]; // Descending frequency
+        if (freqDiff !== 0) return freqDiff;
+        // If frequency is same, sort numerically by roll number
+        return a.rollNumber - b.rollNumber;
+    });
+
+    // 3. Assign smart positions
+    return sorted.map((s, index) => ({
+        ...s,
+        smartPosition: index + 1,
+        frequency: freq[s._lastDigit]
+    }));
+}
+
+function renderDigitChart() {
+    const container = document.getElementById('digit-chart');
+    container.innerHTML = '';
+    
+    const freq = {};
+    for(let i=0; i<=9; i++) freq[i] = 0;
+    
+    allStudents.forEach(s => {
+        const lastDigit = String(s.rollNumber).slice(-1);
+        freq[lastDigit]++;
+    });
+
+    const maxVal = Math.max(...Object.values(freq), 1); // Avoid div by 0
+
+    for(let i=0; i<=9; i++) {
+        const heightPct = (freq[i] / maxVal) * 100;
+        const wrapper = document.createElement('div');
+        wrapper.className = 'chart-bar-wrapper';
+        wrapper.innerHTML = `
+            <div style="font-size:12px; margin-bottom:5px;">${freq[i]}</div>
+            <div class="chart-bar" style="height: ${heightPct}%"></div>
+            <div class="chart-label">${i}</div>
+        `;
+        container.appendChild(wrapper);
+    }
+}
+
+// ======================================================
+// BULK ACTIONS & CHECKBOXES
+// ======================================================
+
+function attachCheckboxListeners() {
+    const selectAll = document.getElementById('select-all-requests');
+    const checkboxes = document.querySelectorAll('.req-checkbox');
+    const bulkBar = document.getElementById('bulk-action-bar');
+    const bulkCount = document.getElementById('bulk-count');
+
+    const updateBulkBar = () => {
+        if(selectedRequests.size > 0) {
+            bulkBar.classList.remove('hidden');
+            bulkCount.textContent = `${selectedRequests.size} Selected`;
+        } else {
+            bulkBar.classList.add('hidden');
+        }
+    };
+
+    selectAll.addEventListener('change', (e) => {
+        if(e.target.checked) {
+            checkboxes.forEach(cb => {
+                cb.checked = true;
+                selectedRequests.add(cb.dataset.id);
+            });
+        } else {
+            checkboxes.forEach(cb => {
+                cb.checked = false;
+                selectedRequests.delete(cb.dataset.id);
+            });
+        }
+        updateBulkBar();
+    });
+
+    checkboxes.forEach(cb => {
+        cb.addEventListener('change', (e) => {
+            if(e.target.checked) selectedRequests.add(e.target.dataset.id);
+            else selectedRequests.delete(e.target.dataset.id);
+            
+            selectAll.checked = (selectedRequests.size === checkboxes.length && checkboxes.length > 0);
+            updateBulkBar();
+        });
+    });
+}
+
+// ======================================================
+// ACTIONS (ASSIGN, REJECT, DELETE)
+// ======================================================
+
+window.singleAssign = (reqId) => {
+    selectedRequests.clear();
+    selectedRequests.add(reqId);
+    document.getElementById('assign-count-text').textContent = "Assigning 1 student";
+    openModal('modal-assign');
+};
+
+document.getElementById('btn-bulk-assign').addEventListener('click', () => {
+    document.getElementById('assign-count-text').textContent = `Assigning ${selectedRequests.size} students`;
+    openModal('modal-assign');
+});
+
+document.getElementById('btn-bulk-reject').addEventListener('click', async () => {
+    if(!confirm(`Are you sure you want to reject ${selectedRequests.size} requests?`)) return;
+    
+    try {
+        const batch = writeBatch(db);
+        selectedRequests.forEach(id => {
+            const reqRef = doc(db, "enrollmentRequests", id);
+            batch.update(reqRef, { status: 'rejected', rejectedAt: serverTimestamp() });
+        });
+        await batch.commit();
+        showToast("Requests rejected successfully", "success");
+        selectedRequests.clear();
+        document.getElementById('select-all-requests').checked = false;
+        document.getElementById('bulk-action-bar').classList.add('hidden');
+    } catch(err) {
+        showToast("Error rejecting requests", "error");
+    }
+});
+
+window.rejectRequest = async (reqId) => {
+    if(!confirm("Are you sure you want to reject this request?")) return;
+    try {
+        await updateDoc(doc(db, "enrollmentRequests", reqId), {
+            status: 'rejected',
+            rejectedAt: serverTimestamp()
+        });
+        showToast("Request rejected", "success");
+    } catch(err) {
+        showToast("Error rejecting request", "error");
+    }
+};
+
+// Form Assign Submission
+document.getElementById('form-assign').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const subjId = document.getElementById('assign-subject-select').value;
+    const subject = allSubjects.find(s => s.id === subjId);
+    
+    if(!subject || selectedRequests.size === 0) return;
+
+    try {
+        const batch = writeBatch(db);
+        
+        selectedRequests.forEach(reqId => {
+            const req = allRequests.find(r => r.id === reqId);
+            if(!req) return;
+
+            // 1. Update Request
+            const reqRef = doc(db, "enrollmentRequests", reqId);
+            batch.update(reqRef, { 
+                status: 'accepted', 
+                acceptedAt: serverTimestamp(),
+                assignedSubjectId: subject.id,
+                assignedSubjectName: subject.name
+            });
+
+            // 2. Create Student Record
+            const studRef = doc(collection(db, "students"));
+            batch.set(studRef, {
+                requestId: reqId,
+                name: req.studentName,
+                rollNumber: req.rollNumber,
+                subjectId: subject.id,
+                subjectName: subject.name,
+                enrolledAt: serverTimestamp()
+            });
+        });
+
+        await batch.commit();
+        closeModals();
+        showToast(`Assigned ${selectedRequests.size} students successfully`, "success");
+        selectedRequests.clear();
+        document.getElementById('select-all-requests').checked = false;
+        document.getElementById('bulk-action-bar').classList.add('hidden');
+    } catch(err) {
+        showToast("Error assigning students", "error");
+    }
+});
+
+// Remove Student
+window.removeStudent = async (studentId, requestId) => {
+    if(!confirm("Are you sure you want to remove this student? This action cannot be undone.")) return;
+    try {
+        const batch = writeBatch(db);
+        batch.delete(doc(db, "students", studentId));
+        if(requestId) {
+            batch.update(doc(db, "enrollmentRequests", requestId), { status: 'rejected' });
+        }
+        await batch.commit();
+        showToast("Student removed successfully", "success");
+    } catch(err) {
+        showToast("Error removing student", "error");
+    }
+};
+
+// ======================================================
+// SUBJECT MANAGEMENT
+// ======================================================
+
+document.getElementById('btn-create-subject').addEventListener('click', () => {
+    document.getElementById('form-subject').reset();
+    openModal('modal-subject');
+});
+
+document.getElementById('form-subject').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = document.getElementById('subj-name').value.trim();
+    const desc = document.getElementById('subj-desc').value.trim();
+    
+    // Simple deduplication check client-side
+    if(allSubjects.find(s => s.name.toLowerCase() === name.toLowerCase())) {
+        showToast("A subject with this name already exists", "error");
+        return;
+    }
+
+    try {
+        await addDoc(collection(db, "subjects"), {
+            name,
+            description: desc,
+            createdAt: serverTimestamp()
+        });
+        closeModals();
+        showToast("Subject created successfully", "success");
+    } catch(err) {
+        showToast("Error creating subject", "error");
+    }
+});
+
+window.deleteSubject = async (subjId, enrolledCount) => {
+    if(enrolledCount > 0) {
+        alert(`Cannot delete this subject. There are ${enrolledCount} students enrolled. Remove them first.`);
+        return;
+    }
+    if(!confirm("Delete this subject?")) return;
+    try {
+        await deleteDoc(doc(db, "subjects", subjId));
+        showToast("Subject deleted", "success");
+    } catch(err) {
+        showToast("Error deleting subject", "error");
+    }
+};
+
+// ======================================================
+// ENROLLMENT LINKS GENERATION
+// ======================================================
+
+function generateUniqueToken() {
+    return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+}
+
+const generateLinkHandler = async () => {
+    const token = generateUniqueToken();
+    try {
+        await addDoc(collection(db, "enrollmentLinks"), {
+            token: token,
+            status: "active",
+            createdAt: serverTimestamp()
+        });
+        
+        const baseUrl = window.location.origin + window.location.pathname;
+        const fullUrl = `${baseUrl}?token=${token}`;
+        
+        document.getElementById('generated-link-url').value = fullUrl;
+        openModal('modal-link');
+    } catch(error) {
+        showToast("Error generating link", "error");
+    }
+};
+
+document.getElementById('btn-generate-link').addEventListener('click', generateLinkHandler);
+document.getElementById('btn-generate-link-dash').addEventListener('click', generateLinkHandler);
+document.getElementById('btn-generate-link-page').addEventListener('click', generateLinkHandler);
+
+document.getElementById('btn-copy-link').addEventListener('click', () => {
+    const input = document.getElementById('generated-link-url');
+    input.select();
+    document.execCommand('copy');
+    showToast("Link copied to clipboard", "success");
+});
+
+window.copyLink = (token) => {
+    const baseUrl = window.location.origin + window.location.pathname;
+    const fullUrl = `${baseUrl}?token=${token}`;
+    navigator.clipboard.writeText(fullUrl).then(() => {
+        showToast("Link copied", "success");
+    });
+};
+
+window.toggleLinkStatus = async (linkId, currentStatus) => {
+    const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
+    try {
+        await updateDoc(doc(db, "enrollmentLinks", linkId), { status: newStatus });
+        showToast(`Link ${newStatus}`, "success");
+    } catch(err) {
+        showToast("Error updating link", "error");
+    }
+};
+
+// ======================================================
+// UTILITIES (Modals, Toasts, Search)
+// ======================================================
+
+function openModal(modalId) {
+    document.getElementById('modal-backdrop').classList.remove('hidden');
+    document.getElementById(modalId).classList.remove('hidden');
+}
+
+function closeModals() {
+    document.getElementById('modal-backdrop').classList.add('hidden');
+    document.querySelectorAll('.modal').forEach(m => m.classList.add('hidden'));
+}
+
+document.querySelectorAll('.close-modal, .close-modal-btn, .modal-backdrop').forEach(btn => {
+    btn.addEventListener('click', closeModals);
+});
+
+function showToast(message, type = "success") {
+    const container = document.getElementById('toast-container');
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    const icon = type === 'success' ? 'bx-check-circle' : 'bx-x-circle';
+    toast.innerHTML = `<i class='bx ${icon}'></i> <span>${message}</span>`;
+    
+    container.appendChild(toast);
+    
+    setTimeout(() => {
+        toast.classList.add('fade-out');
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
+}
+
+document.getElementById('global-search').addEventListener('input', () => {
+    renderRequestsTable();
+    renderStudentsTable();
+});
+
+document.getElementById('request-status-filter').addEventListener('change', () => {
+    renderRequestsTable();
+});
