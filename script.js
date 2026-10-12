@@ -1,48 +1,14 @@
 // ======================================================
-// FIREBASE CONFIGURATION
-// Replace ONLY the placeholder values below with your
-// Firebase project configuration.
+// SMART ENROLLMENT PORTAL - SUPABASE CLIENT & CONTROLLER
+// Migrated from Firebase to Supabase & TypeScript Architecture
 // ======================================================
 
-const firebaseConfig = {
-  apiKey: "AIzaSyD5mGOzs5cJhWg7xac1ONJOJds4GkwjemA",
-  authDomain: "attendance-apk-8f619.firebaseapp.com",
-  databaseURL: "https://attendance-apk-8f619-default-rtdb.firebaseio.com",
-  projectId: "attendance-apk-8f619",
-  storageBucket: "attendance-apk-8f619.firebasestorage.app",
-  messagingSenderId: "922973833002",
-  appId: "1:922973833002:web:d2f41a023c73017c258053"
-};
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-// Import Firebase SDKs from CDN
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-import { 
-    getAuth, 
-    signInWithEmailAndPassword, 
-    signOut, 
-    onAuthStateChanged 
-} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
-import { 
-    getFirestore, 
-    collection, 
-    addDoc, 
-    getDocs, 
-    getDoc,
-    doc,
-    updateDoc, 
-    deleteDoc, 
-    query, 
-    where,
-    orderBy,
-    onSnapshot,
-    serverTimestamp,
-    writeBatch
-} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+const SUPABASE_URL = "https://ynlcbpxcsnfxqrogizns.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlubGNicHhjc25meHFyb2dpem5zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc5MDMxNjMsImV4cCI6MjEwMzQ3OTE2M30.sx5iFeugOuLBt4pqt0-8_4VOGz1yWa7HQWl4NyGCWkE";
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // State Variables
 let currentAdmin = null;
@@ -51,610 +17,684 @@ let allStudents = [];
 let allRequests = [];
 let allSubjects = [];
 let selectedRequests = new Set();
-let unsubscribeListeners = [];
+let selectedStudents = new Set();
+let realtimeChannel = null;
 
 // DOM Elements
 const views = {
-    loader: document.getElementById('global-loader'),
-    login: document.getElementById('login-view'),
-    admin: document.getElementById('admin-view'),
-    student: document.getElementById('student-view')
+  loader: document.getElementById('global-loader'),
+  login: document.getElementById('login-view'),
+  admin: document.getElementById('admin-view'),
+  student: document.getElementById('student-view')
 };
 
-// Init Application Routing
+// Application Bootstrap
 window.addEventListener('DOMContentLoaded', () => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get('token');
+  const urlParams = new URLSearchParams(window.location.search);
+  const token = urlParams.get('token');
 
-    if (token) {
-        // Student Enrollment View
-        currentEnrollmentToken = token;
-        validateEnrollmentToken(token);
-    } else {
-        // Admin Auth Flow
-        setupAuthObserver();
-    }
+  if (token) {
+    currentEnrollmentToken = token;
+    validateEnrollmentToken(token);
+  } else {
+    setupAuthObserver();
+  }
 });
 
 // ======================================================
 // AUTHENTICATION & ROUTING
 // ======================================================
 
-function setupAuthObserver() {
-    onAuthStateChanged(auth, (user) => {
-        hideLoader();
-        if (user) {
-            currentAdmin = user;
-            document.getElementById('admin-user-email').textContent = user.email;
-            showView('admin');
-            initAdminDashboard();
-        } else {
-            currentAdmin = null;
-            showView('login');
-        }
-    });
+async function setupAuthObserver() {
+  const { data: { session } } = await supabase.auth.getSession();
+  handleAuthState(session?.user ?? null);
+
+  supabase.auth.onAuthStateChange((_event, session) => {
+    handleAuthState(session?.user ?? null);
+  });
+}
+
+function handleAuthState(user) {
+  hideLoader();
+  if (user) {
+    currentAdmin = user;
+    const emailEl = document.getElementById('admin-user-email');
+    if (emailEl) emailEl.textContent = user.email || 'Admin';
+    showView('admin');
+    initAdminDashboard();
+  } else {
+    currentAdmin = null;
+    if (realtimeChannel) {
+      supabase.removeChannel(realtimeChannel);
+      realtimeChannel = null;
+    }
+    showView('login');
+  }
 }
 
 function showView(viewName) {
-    Object.values(views).forEach(v => {
-        if(v && !v.classList.contains('global-loader')) v.classList.add('hidden');
-    });
-    if(views[viewName]) views[viewName].classList.remove('hidden');
+  Object.values(views).forEach(v => {
+    if (v && !v.classList.contains('global-loader')) v.classList.add('hidden');
+  });
+  if (views[viewName]) views[viewName].classList.remove('hidden');
 }
 
 function hideLoader() {
-    if(views.loader) views.loader.classList.add('hidden');
+  if (views.loader) views.loader.classList.add('hidden');
 }
 
-// Login Logic
-document.getElementById('login-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const email = document.getElementById('login-email').value;
-    const pwd = document.getElementById('login-password').value;
-    const errorEl = document.getElementById('login-error');
-    const btnText = document.getElementById('login-btn-text');
-    const spinner = document.getElementById('login-spinner');
-    
-    errorEl.textContent = '';
-    btnText.classList.add('hidden');
-    spinner.classList.remove('hidden');
+// Admin Login
+document.getElementById('login-form')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const emailInput = document.getElementById('login-email');
+  const pwdInput = document.getElementById('login-password');
+  const errorEl = document.getElementById('login-error');
+  const btnText = document.getElementById('login-btn-text');
+  const spinner = document.getElementById('login-spinner');
 
-    try {
-        await signInWithEmailAndPassword(auth, email, pwd);
-        // Observer will handle redirect
-    } catch (error) {
-        let msg = "Invalid credentials. Please try again.";
-        if(error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
-            msg = "Incorrect email or password.";
-        } else if (error.code === 'auth/too-many-requests') {
-            msg = "Too many attempts. Try again later.";
-        }
-        errorEl.textContent = msg;
-        btnText.classList.remove('hidden');
-        spinner.classList.add('hidden');
+  if (!emailInput || !pwdInput) return;
+  const email = emailInput.value.trim();
+  const password = pwdInput.value;
+
+  if (errorEl) errorEl.textContent = '';
+  btnText?.classList.add('hidden');
+  spinner?.classList.remove('hidden');
+
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+  } catch (error) {
+    if (errorEl) {
+      errorEl.textContent = error.message || 'Invalid credentials. Please try again.';
     }
+    btnText?.classList.remove('hidden');
+    spinner?.classList.add('hidden');
+  }
 });
 
-// Toggle Password
-document.getElementById('toggle-pwd').addEventListener('click', (e) => {
-    const pwdInput = document.getElementById('login-password');
-    if (pwdInput.type === 'password') {
-        pwdInput.type = 'text';
-        e.target.classList.replace('bx-hide', 'bx-show');
-    } else {
-        pwdInput.type = 'password';
-        e.target.classList.replace('bx-show', 'bx-hide');
-    }
+// Toggle Password Visibility
+document.getElementById('toggle-pwd')?.addEventListener('click', (e) => {
+  const pwdInput = document.getElementById('login-password');
+  const target = e.currentTarget;
+  if (!pwdInput) return;
+  if (pwdInput.type === 'password') {
+    pwdInput.type = 'text';
+    target.classList.replace('bx-hide', 'bx-show');
+  } else {
+    pwdInput.type = 'password';
+    target.classList.replace('bx-show', 'bx-hide');
+  }
 });
 
 // Logout
-document.getElementById('btn-logout').addEventListener('click', async () => {
-    try {
-        unsubscribeAll();
-        await signOut(auth);
-    } catch(err) {
-        showToast("Error logging out", "error");
+document.getElementById('btn-logout')?.addEventListener('click', async () => {
+  try {
+    if (realtimeChannel) {
+      await supabase.removeChannel(realtimeChannel);
+      realtimeChannel = null;
     }
+    await supabase.auth.signOut();
+    showToast('Logged out successfully', 'success');
+  } catch (err) {
+    showToast('Error logging out', 'error');
+  }
 });
 
 // ======================================================
-// STUDENT ENROLLMENT LOGIC (PUBLIC)
+// STUDENT ENROLLMENT (PUBLIC)
 // ======================================================
 
 async function validateEnrollmentToken(token) {
-    try {
-        const q = query(collection(db, "enrollmentLinks"), where("token", "==", token), where("status", "==", "active"));
-        const snapshot = await getDocs(q);
-        
-        hideLoader();
-        showView('student');
-        
-        if (snapshot.empty) {
-            document.getElementById('student-form-container').classList.add('hidden');
-            document.getElementById('student-error-container').classList.remove('hidden');
-        } else {
-            // Valid token
-            document.getElementById('student-form-container').classList.remove('hidden');
-        }
-    } catch (error) {
-        hideLoader();
-        showView('student');
-        document.getElementById('student-form-container').classList.add('hidden');
-        document.getElementById('student-error-container').classList.remove('hidden');
-        document.getElementById('student-error-msg').textContent = "Connection error. Please try again later.";
+  try {
+    const { data, error } = await supabase
+      .from('enrollment_links')
+      .select('*')
+      .eq('token', token)
+      .eq('status', 'active')
+      .single();
+
+    hideLoader();
+    showView('student');
+
+    if (error || !data) {
+      document.getElementById('student-form-container')?.classList.add('hidden');
+      document.getElementById('student-error-container')?.classList.remove('hidden');
+    } else {
+      document.getElementById('student-form-container')?.classList.remove('hidden');
     }
+  } catch (error) {
+    hideLoader();
+    showView('student');
+    document.getElementById('student-form-container')?.classList.add('hidden');
+    document.getElementById('student-error-container')?.classList.remove('hidden');
+    const msgEl = document.getElementById('student-error-msg');
+    if (msgEl) msgEl.textContent = 'Connection error. Please try again later.';
+  }
 }
 
-document.getElementById('enrollment-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const name = document.getElementById('student-name').value.trim().toUpperCase();
-    const roll = document.getElementById('student-roll').value.trim();
-    
-    if(!name || !roll) return;
+document.getElementById('enrollment-form')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const nameInput = document.getElementById('student-name');
+  const rollInput = document.getElementById('student-roll');
 
-    const btnText = document.getElementById('enrollment-btn-text');
-    const spinner = document.getElementById('enrollment-spinner');
-    
-    btnText.classList.add('hidden');
-    spinner.classList.remove('hidden');
-    document.getElementById('btn-submit-enrollment').disabled = true;
+  if (!nameInput || !rollInput) return;
+  const name = nameInput.value.trim().toUpperCase();
+  const roll = parseInt(rollInput.value.trim(), 10);
 
-    try {
-        // Find if link has a pre-assigned subject
-        const q = query(collection(db, "enrollmentLinks"), where("token", "==", currentEnrollmentToken));
-        const snapshot = await getDocs(q);
-        
-        let subjectId = null;
-        let subjectName = null;
-        if (!snapshot.empty) {
-            const linkData = snapshot.docs[0].data();
-            subjectId = linkData.subjectId || null;
-            subjectName = linkData.subjectName || null;
-        }
+  if (!name || isNaN(roll)) return;
 
-        if (subjectId) {
-            // Auto Accept Flow
-            const reqRef = await addDoc(collection(db, "enrollmentRequests"), {
-                studentName: name,
-                rollNumber: parseInt(roll, 10),
-                enrollmentToken: currentEnrollmentToken,
-                status: "accepted",
-                assignedSubjectId: subjectId,
-                assignedSubjectName: subjectName,
-                createdAt: serverTimestamp(),
-                acceptedAt: serverTimestamp()
-            });
+  const btnSubmit = document.getElementById('btn-submit-enrollment');
+  const btnText = document.getElementById('enrollment-btn-text');
+  const spinner = document.getElementById('enrollment-spinner');
 
-            // IMPORTANT: Requires Firestore rule allowing public create on 'students'
-            await addDoc(collection(db, "students"), {
-                requestId: reqRef.id,
-                name: name,
-                rollNumber: parseInt(roll, 10),
-                subjectId: subjectId,
-                subjectName: subjectName,
-                enrolledAt: serverTimestamp()
-            });
-        } else {
-            // Normal Pending Flow
-            await addDoc(collection(db, "enrollmentRequests"), {
-                studentName: name,
-                rollNumber: parseInt(roll, 10),
-                enrollmentToken: currentEnrollmentToken,
-                status: "pending",
-                createdAt: serverTimestamp()
-            });
-        }
+  btnText?.classList.add('hidden');
+  spinner?.classList.remove('hidden');
+  if (btnSubmit) btnSubmit.disabled = true;
 
-        document.getElementById('student-form-container').classList.add('hidden');
-        document.getElementById('student-success-container').classList.remove('hidden');
-    } catch (error) {
-        console.error(error);
-        showToast("Error submitting request. Please try again.", "error");
-        btnText.classList.remove('hidden');
-        spinner.classList.add('hidden');
-        document.getElementById('btn-submit-enrollment').disabled = false;
+  try {
+    const { data: linkData } = await supabase
+      .from('enrollment_links')
+      .select('*')
+      .eq('token', currentEnrollmentToken)
+      .single();
+
+    const subjectId = linkData?.subject_id || null;
+    const subjectName = linkData?.subject_name || null;
+
+    if (subjectId) {
+      // Auto-Accept Flow
+      const { data: reqData, error: reqErr } = await supabase
+        .from('enrollment_requests')
+        .insert({
+          student_name: name,
+          roll_number: roll,
+          enrollment_token: currentEnrollmentToken,
+          status: 'accepted',
+          assigned_subject_id: subjectId,
+          assigned_subject_name: subjectName,
+          accepted_at: new Date().toISOString()
+        })
+        .select()
+        .single();
+
+      if (reqErr) throw reqErr;
+
+      await supabase.from('enrolled_students').insert({
+        request_id: reqData.id,
+        name: name,
+        roll_number: roll,
+        subject_id: subjectId,
+        subject_name: subjectName
+      });
+    } else {
+      // Normal Pending Flow
+      const { error: reqErr } = await supabase
+        .from('enrollment_requests')
+        .insert({
+          student_name: name,
+          roll_number: roll,
+          enrollment_token: currentEnrollmentToken,
+          status: 'pending'
+        });
+
+      if (reqErr) throw reqErr;
     }
+
+    document.getElementById('student-form-container')?.classList.add('hidden');
+    document.getElementById('student-success-container')?.classList.remove('hidden');
+  } catch (error) {
+    console.error(error);
+    showToast('Error submitting request. Please try again.', 'error');
+    btnText?.classList.remove('hidden');
+    spinner?.classList.add('hidden');
+    if (btnSubmit) btnSubmit.disabled = false;
+  }
 });
 
 // ======================================================
-// ADMIN DASHBOARD CORE LOGIC
+// ADMIN DASHBOARD
 // ======================================================
 
 function initAdminDashboard() {
-    setupNavigation();
-    setupRealtimeListeners();
-    setupModals();
-    setupSearchAndFilters();
+  setupNavigation();
+  loadAllData();
+  setupRealtimeListeners();
+  setupModals();
+  setupSearchAndFilters();
 }
 
-function unsubscribeAll() {
-    unsubscribeListeners.forEach(unsub => unsub());
-    unsubscribeListeners = [];
-}
-
-// Navigation
 function setupNavigation() {
-    const navLinks = document.querySelectorAll('.nav-links li, .btn-nav');
-    navLinks.forEach(link => {
-        link.addEventListener('click', (e) => {
-            const targetId = e.currentTarget.getAttribute('data-target');
-            if(!targetId) return;
-            
-            // Handle sidebar active state
-            if(e.currentTarget.tagName === 'LI') {
-                document.querySelectorAll('.nav-links li').forEach(l => l.classList.remove('active'));
-                e.currentTarget.classList.add('active');
-            } else {
-                // If clicked from a button, sync sidebar
-                document.querySelectorAll('.nav-links li').forEach(l => {
-                    l.classList.remove('active');
-                    if(l.getAttribute('data-target') === targetId) l.classList.add('active');
-                });
-            }
+  const navLinks = document.querySelectorAll('.nav-links li, .btn-nav');
+  navLinks.forEach(link => {
+    link.addEventListener('click', (e) => {
+      const targetId = e.currentTarget.getAttribute('data-target');
+      if (!targetId) return;
 
-            // Show target section
-            document.querySelectorAll('.page-section').forEach(sec => sec.classList.remove('active'));
-            document.getElementById(targetId).classList.add('active');
-            
-            // Close mobile menu
-            document.getElementById('sidebar').classList.remove('open');
+      if (e.currentTarget.tagName === 'LI') {
+        document.querySelectorAll('.nav-links li').forEach(l => l.classList.remove('active'));
+        e.currentTarget.classList.add('active');
+      } else {
+        document.querySelectorAll('.nav-links li').forEach(l => {
+          l.classList.remove('active');
+          if (l.getAttribute('data-target') === targetId) l.classList.add('active');
         });
-    });
+      }
 
-    document.getElementById('mobile-menu-toggle').addEventListener('click', () => {
-        document.getElementById('sidebar').classList.add('open');
+      document.querySelectorAll('.page-section').forEach(sec => sec.classList.remove('active'));
+      document.getElementById(targetId)?.classList.add('active');
+
+      document.getElementById('sidebar')?.classList.remove('open');
     });
-    document.getElementById('mobile-menu-close').addEventListener('click', () => {
-        document.getElementById('sidebar').classList.remove('open');
-    });
+  });
+
+  document.getElementById('mobile-menu-toggle')?.addEventListener('click', () => {
+    document.getElementById('sidebar')?.classList.add('open');
+  });
+  document.getElementById('mobile-menu-close')?.addEventListener('click', () => {
+    document.getElementById('sidebar')?.classList.remove('open');
+  });
 }
 
-// ======================================================
-// REALTIME DATA LISTENERS
-// ======================================================
+// Data loaders
+async function loadAllData() {
+  await Promise.all([loadRequests(), loadSubjects(), loadStudents(), loadLinks()]);
+}
+
+async function loadRequests() {
+  const { data, error } = await supabase
+    .from('enrollment_requests')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('Error loading requests:', error);
+    return;
+  }
+
+  allRequests = data || [];
+  let pendingCount = 0;
+  let todayCount = 0;
+  let acceptedTotal = 0;
+  let rejectedTotal = 0;
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  allRequests.forEach(req => {
+    if (req.status === 'pending') pendingCount++;
+    if (req.status === 'accepted') acceptedTotal++;
+    if (req.status === 'rejected') rejectedTotal++;
+
+    if (req.created_at && new Date(req.created_at) >= today) {
+      todayCount++;
+    }
+  });
+
+  const statPending = document.getElementById('stat-pending-requests');
+  if (statPending) statPending.textContent = String(pendingCount);
+
+  const statToday = document.getElementById('stat-today-requests');
+  if (statToday) statToday.textContent = String(todayCount);
+
+  const navPendingBadge = document.getElementById('nav-pending-badge');
+  if (navPendingBadge) navPendingBadge.textContent = String(pendingCount);
+
+  const analyticsToday = document.getElementById('analytics-today');
+  if (analyticsToday) analyticsToday.textContent = String(todayCount);
+
+  const analyticsAccepted = document.getElementById('analytics-accepted');
+  if (analyticsAccepted) analyticsAccepted.textContent = String(acceptedTotal);
+
+  const analyticsRejected = document.getElementById('analytics-rejected');
+  if (analyticsRejected) analyticsRejected.textContent = String(rejectedTotal);
+
+  renderRequestsTable();
+  renderDashRecentRequests();
+}
+
+async function loadSubjects() {
+  const { data, error } = await supabase
+    .from('subjects')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('Error loading subjects:', error);
+    return;
+  }
+
+  allSubjects = data || [];
+  const statSubjects = document.getElementById('stat-total-subjects');
+  if (statSubjects) statSubjects.textContent = String(allSubjects.length);
+
+  renderSubjectsTable();
+  updateSubjectSelects();
+}
+
+async function loadStudents() {
+  const { data, error } = await supabase
+    .from('enrolled_students')
+    .select('*')
+    .order('enrolled_at', { ascending: false });
+
+  if (error) {
+    console.error('Error loading students:', error);
+    return;
+  }
+
+  allStudents = data || [];
+  const statStudents = document.getElementById('stat-total-students');
+  if (statStudents) statStudents.textContent = String(allStudents.length);
+
+  renderStudentsTable();
+  renderDashRecentStudents();
+  renderDigitChart();
+  renderSubjectsTable();
+}
+
+async function loadLinks() {
+  const { data, error } = await supabase
+    .from('enrollment_links')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('Error loading links:', error);
+    return;
+  }
+
+  const linksBody = document.getElementById('links-tbody');
+  if (!linksBody) return;
+  linksBody.innerHTML = '';
+
+  (data || []).forEach((link) => {
+    const date = link.created_at ? new Date(link.created_at).toLocaleDateString() : 'N/A';
+    const statusClass = link.status === 'active' ? 'active' : 'inactive';
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><code>${link.token.substring(0, 8)}...</code></td>
+      <td>${date}</td>
+      <td><span class="status-badge ${statusClass}">${link.status}</span></td>
+      <td>
+        <button class="btn-text" onclick="copyLink('${link.token}')">Copy Link</button>
+        <button class="btn-text" style="margin-left:10px" onclick="toggleLinkStatus('${link.id}', '${link.status}')">
+          ${link.status === 'active' ? 'Deactivate' : 'Activate'}
+        </button>
+        <button class="btn-text text-red" style="margin-left:10px" onclick="deleteLink('${link.id}')" title="Delete Permanently">
+          <i class='bx bx-trash'></i>
+        </button>
+      </td>
+    `;
+    linksBody.appendChild(tr);
+  });
+}
 
 function setupRealtimeListeners() {
-    // 1. Listen to Requests
-    const reqQ = query(collection(db, "enrollmentRequests"), orderBy("createdAt", "desc"));
-    const unsubReq = onSnapshot(reqQ, (snapshot) => {
-        allRequests = [];
-        let pendingCount = 0;
-        let todayCount = 0;
-        let acceptedTotal = 0;
-        let rejectedTotal = 0;
-        
-        const today = new Date();
-        today.setHours(0,0,0,0);
+  if (realtimeChannel) {
+    supabase.removeChannel(realtimeChannel);
+  }
 
-        snapshot.forEach(doc => {
-            const data = doc.data();
-            const req = { id: doc.id, ...data };
-            allRequests.push(req);
-            
-            if(req.status === 'pending') pendingCount++;
-            if(req.status === 'accepted') acceptedTotal++;
-            if(req.status === 'rejected') rejectedTotal++;
-            
-            if(req.createdAt && req.createdAt.toDate() >= today) {
-                todayCount++;
-            }
-        });
-
-        // Update Dashboard Stats
-        document.getElementById('stat-pending-requests').textContent = pendingCount;
-        document.getElementById('stat-today-requests').textContent = todayCount;
-        document.getElementById('nav-pending-badge').textContent = pendingCount;
-        
-        // Analytics
-        document.getElementById('analytics-today').textContent = todayCount;
-        document.getElementById('analytics-accepted').textContent = acceptedTotal;
-        document.getElementById('analytics-rejected').textContent = rejectedTotal;
-
-        renderRequestsTable();
-        renderDashRecentRequests();
-    }, (error) => {
-        console.error("Firebase Rule Error or Connection Error:", error);
-    });
-    
-    // 2. Listen to Subjects
-    const subjQ = query(collection(db, "subjects"), orderBy("createdAt", "desc"));
-    const unsubSubj = onSnapshot(subjQ, (snapshot) => {
-        allSubjects = [];
-        snapshot.forEach(doc => allSubjects.push({ id: doc.id, ...doc.data() }));
-        document.getElementById('stat-total-subjects').textContent = allSubjects.length;
-        renderSubjectsTable();
-        updateSubjectSelects();
-    });
-
-    // 3. Listen to Students (Accepted Requests essentially, or separate Students collection)
-    const studQ = query(collection(db, "students"), orderBy("enrolledAt", "desc"));
-    const unsubStud = onSnapshot(studQ, (snapshot) => {
-        allStudents = [];
-        const seenRolls = new Set();
-        
-        snapshot.forEach(doc => {
-            const data = doc.data();
-            // Deduplicate by Roll Number + Subject ID
-            const uniqueKey = data.rollNumber + '_' + data.subjectId;
-            if (!seenRolls.has(uniqueKey)) {
-                allStudents.push({ id: doc.id, ...data });
-                seenRolls.add(uniqueKey);
-            }
-        });
-        
-        document.getElementById('stat-total-students').textContent = allStudents.length;
-        renderStudentsTable();
-        renderDashRecentStudents();
-        renderDigitChart();
-        renderSubjectsTable();
-    });
-
-    // 4. Listen to Links
-    const linkQ = query(collection(db, "enrollmentLinks"), orderBy("createdAt", "desc"));
-    const unsubLink = onSnapshot(linkQ, (snapshot) => {
-        const linksBody = document.getElementById('links-tbody');
-        linksBody.innerHTML = '';
-        snapshot.forEach(doc => {
-            const data = doc.data();
-            const date = data.createdAt ? data.createdAt.toDate().toLocaleDateString() : 'N/A';
-            const statusClass = data.status === 'active' ? 'active' : 'inactive';
-            
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td><code>${data.token.substring(0,8)}...</code></td>
-                <td>${date}</td>
-                <td><span class="status-badge ${statusClass}">${data.status}</span></td>
-                <td>
-                    <button class="btn-text" onclick="copyLink('${data.token}')">Copy Link</button>
-                    <button class="btn-text" style="margin-left:10px" onclick="toggleLinkStatus('${doc.id}', '${data.status}')">
-                        ${data.status === 'active' ? 'Deactivate' : 'Activate'}
-                    </button>
-                    <button class="btn-text text-red" style="margin-left:10px" onclick="deleteLink('${doc.id}')" title="Delete Permanently">
-                        <i class='bx bx-trash'></i>
-                    </button>
-                </td>
-            `;
-            linksBody.appendChild(tr);
-        });
-    });
-
-    unsubscribeListeners.push(unsubReq, unsubSubj, unsubStud, unsubLink);
+  realtimeChannel = supabase
+    .channel('enrollment-smart-realtime')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'enrollment_requests' }, () => {
+      loadRequests();
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'subjects' }, () => {
+      loadSubjects();
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'enrolled_students' }, () => {
+      loadStudents();
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'enrollment_links' }, () => {
+      loadLinks();
+    })
+    .subscribe();
 }
 
 // ======================================================
-// RENDER FUNCTIONS
+// RENDER VIEWS
 // ======================================================
 
 function renderDashRecentRequests() {
-    const tbody = document.getElementById('dash-recent-requests');
-    tbody.innerHTML = '';
-    allRequests.slice(0, 5).forEach(req => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td>${req.studentName}</td>
-            <td>${req.rollNumber}</td>
-            <td><span class="status-badge ${req.status}">${req.status}</span></td>
-        `;
-        tbody.appendChild(tr);
-    });
+  const tbody = document.getElementById('dash-recent-requests');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  allRequests.slice(0, 5).forEach(req => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${req.student_name}</td>
+      <td>${req.roll_number}</td>
+      <td><span class="status-badge ${req.status}">${req.status}</span></td>
+    `;
+    tbody.appendChild(tr);
+  });
 }
 
 function renderDashRecentStudents() {
-    const tbody = document.getElementById('dash-recent-students');
-    tbody.innerHTML = '';
-    allStudents.slice(0, 5).forEach(s => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td>${s.name}</td>
-            <td>${s.subjectName}</td>
-        `;
-        tbody.appendChild(tr);
-    });
+  const tbody = document.getElementById('dash-recent-students');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  allStudents.slice(0, 5).forEach(s => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${s.name}</td>
+      <td>${s.subject_name || '-'}</td>
+    `;
+    tbody.appendChild(tr);
+  });
 }
 
 function renderRequestsTable() {
-    const tbody = document.getElementById('requests-tbody');
-    const filterStatus = document.getElementById('request-status-filter').value;
-    const searchInput = document.getElementById('global-search');
-    const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
-    
-    tbody.innerHTML = '';
-    
-    allRequests
-        .filter(r => filterStatus === 'all' || r.status === filterStatus)
-        .filter(r => r.studentName.toLowerCase().includes(searchTerm) || String(r.rollNumber).includes(searchTerm))
-        .forEach(req => {
-            const date = req.createdAt ? req.createdAt.toDate().toLocaleDateString() : 'N/A';
-            const tr = document.createElement('tr');
-            
-            const isChecked = selectedRequests.has(req.id) ? 'checked' : '';
-            
-            tr.innerHTML = `
-                <td><input type="checkbox" class="req-checkbox" value="${req.id}" ${isChecked}></td>
-                <td><strong>${req.studentName}</strong></td>
-                <td>${req.rollNumber}</td>
-                <td><span class="status-badge ${req.status}">${req.status.toUpperCase()}</span></td>
-                <td>${date}</td>
-                <td>
-                    ${req.status === 'pending' ? `<button class="btn-text" onclick="singleAssign('${req.id}')" style="margin-right: 5px;">Assign</button>` : ''}
-                    <button class="btn-text text-red" onclick="deleteRequest('${req.id}')" title="Delete Permanently">Delete</button>
-                </td>
-            `;
-            tbody.appendChild(tr);
-        });
+  const tbody = document.getElementById('requests-tbody');
+  const filterStatusEl = document.getElementById('request-status-filter');
+  const filterStatus = filterStatusEl ? filterStatusEl.value : 'all';
+  const searchInput = document.getElementById('global-search');
+  const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
 
-    attachCheckboxListeners();
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  allRequests
+    .filter(r => filterStatus === 'all' || r.status === filterStatus)
+    .filter(r => r.student_name.toLowerCase().includes(searchTerm) || String(r.roll_number).includes(searchTerm))
+    .forEach(req => {
+      const date = req.created_at ? new Date(req.created_at).toLocaleDateString() : 'N/A';
+      const tr = document.createElement('tr');
+      const isChecked = selectedRequests.has(req.id) ? 'checked' : '';
+
+      tr.innerHTML = `
+        <td><input type="checkbox" class="req-checkbox" value="${req.id}" ${isChecked}></td>
+        <td><strong>${req.student_name}</strong></td>
+        <td>${req.roll_number}</td>
+        <td><span class="status-badge ${req.status}">${req.status.toUpperCase()}</span></td>
+        <td>${date}</td>
+        <td>
+          ${req.status === 'pending' ? `<button class="btn-text" onclick="singleAssign('${req.id}')" style="margin-right: 5px;">Assign</button>` : ''}
+          <button class="btn-text text-red" onclick="deleteRequest('${req.id}')" title="Delete Permanently">Delete</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+  attachCheckboxListeners();
 }
 
 function renderSubjectsTable() {
-    const tbody = document.getElementById('subjects-tbody');
-    tbody.innerHTML = '';
-    allSubjects.forEach(sub => {
-        const enrolledCount = allStudents.filter(s => s.subjectId === sub.id).length;
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td><strong>${sub.name}</strong></td>
-            <td>${sub.description || '-'}</td>
-            <td>${enrolledCount} students</td>
-            <td>
-                <button class="btn-text text-red" onclick="deleteSubject('${sub.id}', ${enrolledCount})">Delete</button>
-            </td>
-        `;
-        tbody.appendChild(tr);
-    });
+  const tbody = document.getElementById('subjects-tbody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  allSubjects.forEach(sub => {
+    const enrolledCount = allStudents.filter(s => s.subject_id === sub.id).length;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><strong>${sub.name}</strong></td>
+      <td>${sub.description || '-'}</td>
+      <td>${enrolledCount} students</td>
+      <td>
+        <button class="btn-text text-red" onclick="deleteSubject('${sub.id}', ${enrolledCount})">Delete</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
 }
 
 function updateSubjectSelects() {
-    const selects = [
-        document.getElementById('assign-subject-select'), 
-        document.getElementById('link-subject-select'),
-        document.getElementById('filter-subject')
-    ];
-    selects.forEach(select => {
-        if(!select) return;
-        
-        const currentValue = select.value;
-        select.innerHTML = select.id === 'filter-subject' ? '<option value="">All Subjects</option>' : '<option value="">-- Choose Subject --</option>';
-        
-        allSubjects.forEach(sub => {
-            const opt = document.createElement('option');
-            opt.value = sub.id;
-            opt.textContent = sub.name;
-            select.appendChild(opt);
-        });
-        
-        select.value = currentValue;
-    });
-}
+  const selects = [
+    document.getElementById('assign-subject-select'),
+    document.getElementById('link-subject-select'),
+    document.getElementById('filter-subject')
+  ];
 
-// ======================================================
-// SMART ROLL SEQUENCE ENGINE
-// ======================================================
+  selects.forEach(select => {
+    if (!select) return;
+    const currentValue = select.value;
+    select.innerHTML = select.id === 'filter-subject'
+      ? '<option value="">All Subjects</option>'
+      : '<option value="">-- Choose Subject --</option>';
+
+    allSubjects.forEach(sub => {
+      const opt = document.createElement('option');
+      opt.value = sub.id;
+      opt.textContent = sub.name;
+      select.appendChild(opt);
+    });
+
+    select.value = currentValue;
+  });
+}
 
 function renderStudentsTable() {
-    const tbody = document.getElementById('students-tbody');
-    const searchTerm = document.getElementById('students-search') ? document.getElementById('students-search').value.toLowerCase() : '';
-    const filterSubjectId = document.getElementById('filter-subject').value;
-    
-    tbody.innerHTML = '';
+  const tbody = document.getElementById('students-tbody');
+  const searchInput = document.getElementById('students-search');
+  const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
+  const filterSubjectEl = document.getElementById('filter-subject');
+  const filterSubjectId = filterSubjectEl ? filterSubjectEl.value : '';
 
-    // Sort numerically by roll number ascending
-    const sortedStudents = [...allStudents].sort((a, b) => a.rollNumber - b.rollNumber);
+  if (!tbody) return;
+  tbody.innerHTML = '';
 
-    sortedStudents
-        .filter(s => {
-            const matchSearch = s.name.toLowerCase().includes(searchTerm) || String(s.rollNumber).includes(searchTerm);
-            const matchSubject = filterSubjectId === "" || s.subjectId === filterSubjectId;
-            return matchSearch && matchSubject;
-        })
-        .forEach((s, index) => {
-            const isChecked = selectedStudents.has(s.id) ? 'checked' : '';
-            const tr = document.createElement('tr');
-            tr.innerHTML = `
-                <td><input type="checkbox" class="student-checkbox" value="${s.id}" ${isChecked}></td>
-                <td><strong class="text-green">#${index + 1}</strong></td>
-                <td><strong>${s.name}</strong></td>
-                <td>${s.rollNumber}</td>
-                <td><span class="status-badge active">${s.subjectName}</span></td>
-                <td>
-                    <button class="btn-text" onclick="openEditStudent('${s.id}')" style="margin-right: 5px;">Edit</button>
-                    <button class="btn-text text-red" onclick="removeStudent('${s.id}', '${s.requestId}')" title="Delete Permanently">Delete</button>
-                </td>
-            `;
-            tbody.appendChild(tr);
-        });
-}
+  const sortedStudents = [...allStudents].sort((a, b) => a.roll_number - b.roll_number);
 
-// Trigger table render when filter changes
-if(document.getElementById('filter-subject')) {
-    document.getElementById('filter-subject').addEventListener('change', renderStudentsTable);
-}
-
-// Download PDF Logic
-document.getElementById('btn-download-pdf').addEventListener('click', () => {
-    const filterSubjectId = document.getElementById('filter-subject').value;
-    const searchTerm = document.getElementById('global-search').value.toLowerCase();
-    
-    // Sort and filter students for PDF
-    const sortedStudents = [...allStudents]
-        .filter(s => {
-            const matchSearch = s.name.toLowerCase().includes(searchTerm) || String(s.rollNumber).includes(searchTerm);
-            const matchSubject = filterSubjectId === "" || s.subjectId === filterSubjectId;
-            return matchSearch && matchSubject;
-        })
-        .sort((a, b) => a.rollNumber - b.rollNumber);
-
-    if (sortedStudents.length === 0) {
-        showToast("No students to download matching the current filters", "error");
-        return;
-    }
-
-    // Initialize jsPDF
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF();
-    
-    // Format data for autotable
-    const tableData = sortedStudents.map((s, index) => [
-        index + 1,
-        s.name,
-        s.rollNumber,
-        s.subjectName
-    ]);
-
-    let title = "Students Enrollment Record";
-    if (filterSubjectId) {
-        const selectedSubject = allSubjects.find(sub => sub.id === filterSubjectId);
-        if (selectedSubject) title += ` - ${selectedSubject.name}`;
-    }
-
-    doc.setFontSize(18);
-    doc.text(title, 14, 22);
-    
-    // Generate Table
-    doc.autoTable({
-        startY: 30,
-        head: [['Pos', 'Name', 'Roll No', 'Subject']],
-        body: tableData,
-        theme: 'grid',
-        headStyles: { fillColor: [79, 70, 229] }, // matches --primary color
-        alternateRowStyles: { fillColor: [248, 250, 252] }
+  sortedStudents
+    .filter(s => {
+      const matchSearch = s.name.toLowerCase().includes(searchTerm) || String(s.roll_number).includes(searchTerm);
+      const matchSubject = filterSubjectId === '' || s.subject_id === filterSubjectId;
+      return matchSearch && matchSubject;
+    })
+    .forEach((s, index) => {
+      const isChecked = selectedStudents.has(s.id) ? 'checked' : '';
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><input type="checkbox" class="student-checkbox" value="${s.id}" ${isChecked}></td>
+        <td><strong class="text-green">#${index + 1}</strong></td>
+        <td><strong>${s.name}</strong></td>
+        <td>${s.roll_number}</td>
+        <td><span class="status-badge active">${s.subject_name || '-'}</span></td>
+        <td>
+          <button class="btn-text" onclick="openEditStudent('${s.id}')" style="margin-right: 5px;">Edit</button>
+          <button class="btn-text text-red" onclick="removeStudent('${s.id}', '${s.request_id || ''}')" title="Delete Permanently">Delete</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
     });
+}
 
-    let filename = "students_record.pdf";
-    if (filterSubjectId) {
-        const selectedSubject = allSubjects.find(sub => sub.id === filterSubjectId);
-        if (selectedSubject) filename = `${selectedSubject.name.replace(/\s+/g, '_')}_record.pdf`;
-    }
+document.getElementById('filter-subject')?.addEventListener('change', renderStudentsTable);
 
-    doc.save(filename);
-    showToast("PDF downloaded successfully", "success");
+// PDF Export
+document.getElementById('btn-download-pdf')?.addEventListener('click', () => {
+  const filterSubjectEl = document.getElementById('filter-subject');
+  const filterSubjectId = filterSubjectEl ? filterSubjectEl.value : '';
+  const searchInput = document.getElementById('global-search');
+  const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
+
+  const sortedStudents = [...allStudents]
+    .filter(s => {
+      const matchSearch = s.name.toLowerCase().includes(searchTerm) || String(s.roll_number).includes(searchTerm);
+      const matchSubject = filterSubjectId === '' || s.subject_id === filterSubjectId;
+      return matchSearch && matchSubject;
+    })
+    .sort((a, b) => a.roll_number - b.roll_number);
+
+  if (sortedStudents.length === 0) {
+    showToast('No students to download matching the current filters', 'error');
+    return;
+  }
+
+  if (!window.jspdf?.jsPDF) {
+    showToast('PDF library is not loaded', 'error');
+    return;
+  }
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+
+  const tableData = sortedStudents.map((s, index) => [
+    index + 1,
+    s.name,
+    s.roll_number,
+    s.subject_name || '-'
+  ]);
+
+  let title = 'Students Enrollment Record';
+  if (filterSubjectId) {
+    const selectedSubject = allSubjects.find(sub => sub.id === filterSubjectId);
+    if (selectedSubject) title += ` - ${selectedSubject.name}`;
+  }
+
+  doc.setFontSize(18);
+  doc.text(title, 14, 22);
+
+  doc.autoTable({
+    startY: 30,
+    head: [['Pos', 'Name', 'Roll No', 'Subject']],
+    body: tableData,
+    theme: 'grid',
+    headStyles: { fillColor: [79, 70, 229] },
+    alternateRowStyles: { fillColor: [248, 250, 252] }
+  });
+
+  let filename = 'students_record.pdf';
+  if (filterSubjectId) {
+    const selectedSubject = allSubjects.find(sub => sub.id === filterSubjectId);
+    if (selectedSubject) filename = `${selectedSubject.name.replace(/\s+/g, '_')}_record.pdf`;
+  }
+
+  doc.save(filename);
+  showToast('PDF downloaded successfully', 'success');
 });
 
+// Digit Chart Analytics
 function renderDigitChart() {
-    const container = document.getElementById('digit-chart');
-    container.innerHTML = '';
-    
-    const freq = {};
-    for(let i=0; i<=9; i++) freq[i] = 0;
-    
-    allStudents.forEach(s => {
-        const lastDigit = String(s.rollNumber).slice(-1);
-        freq[lastDigit]++;
-    });
+  const container = document.getElementById('digit-chart');
+  if (!container) return;
+  container.innerHTML = '';
 
-    const maxVal = Math.max(...Object.values(freq), 1); // Avoid div by 0
+  const freq = {};
+  for (let i = 0; i <= 9; i++) freq[i] = 0;
 
-    for(let i=0; i<=9; i++) {
-        const heightPct = (freq[i] / maxVal) * 100;
-        const wrapper = document.createElement('div');
-        wrapper.className = 'chart-bar-wrapper';
-        wrapper.innerHTML = `
-            <div style="font-size:12px; margin-bottom:5px;">${freq[i]}</div>
-            <div class="chart-bar" style="height: ${heightPct}%"></div>
-            <div class="chart-label">${i}</div>
-        `;
-        container.appendChild(wrapper);
-    }
+  allStudents.forEach(s => {
+    const lastDigit = parseInt(String(s.roll_number).slice(-1), 10);
+    if (!isNaN(lastDigit)) freq[lastDigit]++;
+  });
+
+  const maxVal = Math.max(...Object.values(freq), 1);
+
+  for (let i = 0; i <= 9; i++) {
+    const heightPct = (freq[i] / maxVal) * 100;
+    const wrapper = document.createElement('div');
+    wrapper.className = 'chart-bar-wrapper';
+    wrapper.innerHTML = `
+      <div style="font-size:12px; margin-bottom:5px;">${freq[i]}</div>
+      <div class="chart-bar" style="height: ${heightPct}%"></div>
+      <div class="chart-label">${i}</div>
+    `;
+    container.appendChild(wrapper);
+  }
 }
 
 // ======================================================
@@ -662,347 +702,323 @@ function renderDigitChart() {
 // ======================================================
 
 function attachCheckboxListeners() {
-    const selectAll = document.getElementById('select-all-requests');
-    const checkboxes = document.querySelectorAll('.req-checkbox');
-    const bulkBar = document.getElementById('bulk-action-bar');
-    const bulkCount = document.getElementById('selected-count');
+  const selectAll = document.getElementById('select-all-requests');
+  const checkboxes = document.querySelectorAll('.req-checkbox');
+  const bulkBar = document.getElementById('bulk-action-bar');
+  const bulkCount = document.getElementById('selected-count');
 
-    function updateBulkBar() {
-        if(selectedRequests.size > 0) {
-            bulkBar.classList.remove('hidden');
-            if(bulkCount) bulkCount.textContent = `${selectedRequests.size} selected`;
-            const tab = document.getElementById('request-status-filter').value;
-            if (tab === 'pending' || tab === 'all') {
-                document.getElementById('btn-bulk-assign').classList.remove('hidden');
-            } else {
-                document.getElementById('btn-bulk-assign').classList.add('hidden');
-            }
-        } else {
-            bulkBar.classList.add('hidden');
-        }
-    };
-
-    if(selectAll) {
-        selectAll.addEventListener('change', (e) => {
-            if(e.target.checked) {
-                checkboxes.forEach(cb => {
-                    cb.checked = true;
-                    selectedRequests.add(cb.value);
-                });
-            } else {
-                checkboxes.forEach(cb => {
-                    cb.checked = false;
-                    selectedRequests.delete(cb.value);
-                });
-            }
-            updateBulkBar();
-        });
+  function updateBulkBar() {
+    if (selectedRequests.size > 0) {
+      bulkBar?.classList.remove('hidden');
+      if (bulkCount) bulkCount.textContent = `${selectedRequests.size} selected`;
+      const filterEl = document.getElementById('request-status-filter');
+      const tab = filterEl ? filterEl.value : 'all';
+      if (tab === 'pending' || tab === 'all') {
+        document.getElementById('btn-bulk-assign')?.classList.remove('hidden');
+      } else {
+        document.getElementById('btn-bulk-assign')?.classList.add('hidden');
+      }
+    } else {
+      bulkBar?.classList.add('hidden');
     }
+  }
 
-    checkboxes.forEach(cb => {
-        cb.addEventListener('change', (e) => {
-            if(e.target.checked) selectedRequests.add(e.target.value);
-            else selectedRequests.delete(e.target.value);
-            
-            if(selectAll) selectAll.checked = (selectedRequests.size === checkboxes.length && checkboxes.length > 0);
-            updateBulkBar();
-        });
+  if (selectAll) {
+    selectAll.addEventListener('change', (e) => {
+      const checked = e.target.checked;
+      checkboxes.forEach(cb => {
+        cb.checked = checked;
+        if (checked) selectedRequests.add(cb.value);
+        else selectedRequests.delete(cb.value);
+      });
+      updateBulkBar();
     });
+  }
+
+  checkboxes.forEach(cb => {
+    cb.addEventListener('change', (e) => {
+      const input = e.target;
+      if (input.checked) selectedRequests.add(input.value);
+      else selectedRequests.delete(input.value);
+
+      if (selectAll) selectAll.checked = (selectedRequests.size === checkboxes.length && checkboxes.length > 0);
+      updateBulkBar();
+    });
+  });
 }
 
-// ======================================================
-// ACTIONS (ASSIGN, REJECT, DELETE)
-// ======================================================
-
+// Window Global actions for HTML bindings
 window.singleAssign = (reqId) => {
-    selectedRequests.clear();
-    selectedRequests.add(reqId);
-    document.getElementById('assign-count-text').textContent = "Assigning 1 student";
-    openModal('modal-assign');
+  selectedRequests.clear();
+  selectedRequests.add(reqId);
+  const textEl = document.getElementById('assign-count-text');
+  if (textEl) textEl.textContent = 'Assigning 1 student';
+  openModal('modal-assign');
 };
 
-document.getElementById('btn-bulk-assign').addEventListener('click', () => {
-    document.getElementById('assign-count-text').textContent = `Assigning ${selectedRequests.size} students`;
-    openModal('modal-assign');
+document.getElementById('btn-bulk-assign')?.addEventListener('click', () => {
+  const textEl = document.getElementById('assign-count-text');
+  if (textEl) textEl.textContent = `Assigning ${selectedRequests.size} students`;
+  openModal('modal-assign');
 });
 
-// Select All Students logic
-let selectedStudents = new Set();
+// Select All Students
 document.addEventListener('change', (e) => {
-    if (e.target.id === 'select-all-students') {
-        const checkboxes = document.querySelectorAll('.student-checkbox');
-        selectedStudents.clear();
-        if (e.target.checked) {
-            checkboxes.forEach(cb => {
-                cb.checked = true;
-                selectedStudents.add(cb.value);
-            });
-        } else {
-            checkboxes.forEach(cb => cb.checked = false);
-        }
-        updateStudentsBulkActionBar();
-    } else if (e.target.classList.contains('student-checkbox')) {
-        if (e.target.checked) {
-            selectedStudents.add(e.target.value);
-        } else {
-            selectedStudents.delete(e.target.value);
-        }
-        const total = document.querySelectorAll('.student-checkbox').length;
-        document.getElementById('select-all-students').checked = (selectedStudents.size === total && total > 0);
-        updateStudentsBulkActionBar();
-    }
+  const target = e.target;
+  if (target.id === 'select-all-students') {
+    const isChecked = target.checked;
+    const checkboxes = document.querySelectorAll('.student-checkbox');
+    selectedStudents.clear();
+    checkboxes.forEach(cb => {
+      cb.checked = isChecked;
+      if (isChecked) selectedStudents.add(cb.value);
+    });
+    updateStudentsBulkActionBar();
+  } else if (target.classList.contains('student-checkbox')) {
+    const cb = target;
+    if (cb.checked) selectedStudents.add(cb.value);
+    else selectedStudents.delete(cb.value);
+
+    const total = document.querySelectorAll('.student-checkbox').length;
+    const selectAll = document.getElementById('select-all-students');
+    if (selectAll) selectAll.checked = (selectedStudents.size === total && total > 0);
+    updateStudentsBulkActionBar();
+  }
 });
 
 function updateStudentsBulkActionBar() {
-    const bar = document.getElementById('students-bulk-action-bar');
-    const count = document.getElementById('students-selected-count');
-    if(selectedStudents.size > 0) {
-        bar.classList.remove('hidden');
-        count.textContent = `${selectedStudents.size} selected`;
-    } else {
-        bar.classList.add('hidden');
-    }
+  const bar = document.getElementById('students-bulk-action-bar');
+  const count = document.getElementById('students-selected-count');
+  if (selectedStudents.size > 0) {
+    bar?.classList.remove('hidden');
+    if (count) count.textContent = `${selectedStudents.size} selected`;
+  } else {
+    bar?.classList.add('hidden');
+  }
 }
 
 // Bulk Delete Students
-document.getElementById('btn-bulk-delete-students').addEventListener('click', async () => {
-    if(selectedStudents.size === 0) return;
-    if(!confirm(`Are you sure you want to permanently delete ${selectedStudents.size} students? This cannot be undone.`)) return;
-    
-    try {
-        const batch = writeBatch(db);
-        selectedStudents.forEach(id => {
-            batch.delete(doc(db, "students", id));
-            const student = allStudents.find(s => s.id === id);
-            if(student && student.requestId) {
-                batch.delete(doc(db, "enrollmentRequests", student.requestId));
-            }
-        });
-        await batch.commit();
-        showToast(`Deleted ${selectedStudents.size} students permanently`, "success");
-        selectedStudents.clear();
-        document.getElementById('select-all-students').checked = false;
-        document.getElementById('students-bulk-action-bar').classList.add('hidden');
-    } catch(err) {
-        showToast("Error deleting students", "error");
+document.getElementById('btn-bulk-delete-students')?.addEventListener('click', async () => {
+  if (selectedStudents.size === 0) return;
+  if (!confirm(`Are you sure you want to permanently delete ${selectedStudents.size} students? This cannot be undone.`)) return;
+
+  try {
+    const studentIds = Array.from(selectedStudents);
+    const studentsToDelete = allStudents.filter(s => studentIds.includes(s.id));
+    const requestIds = studentsToDelete.map(s => s.request_id).filter(Boolean);
+
+    await supabase.from('enrolled_students').delete().in('id', studentIds);
+    if (requestIds.length > 0) {
+      await supabase.from('enrollment_requests').delete().in('id', requestIds);
     }
+
+    showToast(`Deleted ${selectedStudents.size} students permanently`, 'success');
+    selectedStudents.clear();
+    const selectAll = document.getElementById('select-all-students');
+    if (selectAll) selectAll.checked = false;
+    document.getElementById('students-bulk-action-bar')?.classList.add('hidden');
+    await loadAllData();
+  } catch (err) {
+    showToast('Error deleting students', 'error');
+  }
 });
 
 // Bulk Delete Requests
-document.getElementById('btn-bulk-delete').addEventListener('click', async () => {
-    if(selectedRequests.size === 0) return;
-    if(!confirm(`Are you sure you want to permanently delete ${selectedRequests.size} requests?`)) return;
-    
-    try {
-        const batch = writeBatch(db);
-        selectedRequests.forEach(id => {
-            batch.delete(doc(db, "enrollmentRequests", id));
-            // Find student (handle older records without requestId)
-            let student = allStudents.find(s => s.requestId === id);
-            if (!student) {
-                const req = allRequests.find(r => r.id === id);
-                if (req) {
-                    student = allStudents.find(s => s.rollNumber === req.rollNumber && s.name === req.studentName);
-                }
-            }
-            if(student) {
-                batch.delete(doc(db, "students", student.id));
-            }
-        });
-        await batch.commit();
-        showToast(`Deleted ${selectedRequests.size} requests permanently`, "success");
-        selectedRequests.clear();
-        document.getElementById('select-all-requests').checked = false;
-        document.getElementById('bulk-action-bar').classList.add('hidden');
-    } catch(err) {
-        console.error(err);
-        showToast("Error deleting requests", "error");
-    }
+document.getElementById('btn-bulk-delete')?.addEventListener('click', async () => {
+  if (selectedRequests.size === 0) return;
+  if (!confirm(`Are you sure you want to permanently delete ${selectedRequests.size} requests?`)) return;
+
+  try {
+    const reqIds = Array.from(selectedRequests);
+    await supabase.from('enrollment_requests').delete().in('id', reqIds);
+    await supabase.from('enrolled_students').delete().in('request_id', reqIds);
+
+    showToast(`Deleted ${selectedRequests.size} requests permanently`, 'success');
+    selectedRequests.clear();
+    const selectAll = document.getElementById('select-all-requests');
+    if (selectAll) selectAll.checked = false;
+    document.getElementById('bulk-action-bar')?.classList.add('hidden');
+    await loadAllData();
+  } catch (err) {
+    console.error(err);
+    showToast('Error deleting requests', 'error');
+  }
 });
 
 window.deleteRequest = async (reqId) => {
-    if(!confirm("Are you sure you want to permanently delete this request?")) return;
-    try {
-        const batch = writeBatch(db);
-        batch.delete(doc(db, "enrollmentRequests", reqId));
-        
-        // Find student (handle older records without requestId)
-        let student = allStudents.find(s => s.requestId === reqId);
-        if (!student) {
-            const req = allRequests.find(r => r.id === reqId);
-            if (req) {
-                student = allStudents.find(s => s.rollNumber === req.rollNumber && s.name === req.studentName);
-            }
-        }
-        if(student) {
-            batch.delete(doc(db, "students", student.id));
-        }
-        
-        await batch.commit();
-        showToast("Request deleted", "success");
-    } catch(err) {
-        console.error(err);
-        showToast("Error deleting request", "error");
-    }
+  if (!confirm('Are you sure you want to permanently delete this request?')) return;
+  try {
+    await supabase.from('enrollment_requests').delete().eq('id', reqId);
+    await supabase.from('enrolled_students').delete().eq('request_id', reqId);
+    showToast('Request deleted', 'success');
+    await loadAllData();
+  } catch (err) {
+    console.error(err);
+    showToast('Error deleting request', 'error');
+  }
 };
 
 // Form Assign Submission
-document.getElementById('form-assign').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const subjId = document.getElementById('assign-subject-select').value;
-    const subject = allSubjects.find(s => s.id === subjId);
-    
-    if(!subject || selectedRequests.size === 0) return;
+document.getElementById('form-assign')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const selectEl = document.getElementById('assign-subject-select');
+  const subjId = selectEl.value;
+  const subject = allSubjects.find(s => s.id === subjId);
 
-    try {
-        const batch = writeBatch(db);
-        
-        selectedRequests.forEach(reqId => {
-            const req = allRequests.find(r => r.id === reqId);
-            if(!req) return;
+  if (!subject || selectedRequests.size === 0) return;
 
-            // 1. Update Request
-            const reqRef = doc(db, "enrollmentRequests", reqId);
-            batch.update(reqRef, { 
-                status: 'accepted', 
-                acceptedAt: serverTimestamp(),
-                assignedSubjectId: subject.id,
-                assignedSubjectName: subject.name
-            });
+  try {
+    const reqIds = Array.from(selectedRequests);
+    for (const reqId of reqIds) {
+      const req = allRequests.find(r => r.id === reqId);
+      if (!req) continue;
 
-            // 2. Check Deduplication before adding Student
-            const alreadyExists = allStudents.some(s => s.rollNumber === req.rollNumber && s.subjectId === subject.id);
-            if (!alreadyExists) {
-                const studRef = doc(collection(db, "students"));
-                batch.set(studRef, {
-                    requestId: reqId,
-                    name: req.studentName,
-                    rollNumber: req.rollNumber,
-                    subjectId: subject.id,
-                    subjectName: subject.name,
-                    enrolledAt: serverTimestamp()
-                });
-            }
+      await supabase
+        .from('enrollment_requests')
+        .update({
+          status: 'accepted',
+          assigned_subject_id: subject.id,
+          assigned_subject_name: subject.name,
+          accepted_at: new Date().toISOString()
+        })
+        .eq('id', reqId);
+
+      const alreadyExists = allStudents.some(
+        s => s.roll_number === req.roll_number && s.subject_id === subject.id
+      );
+
+      if (!alreadyExists) {
+        await supabase.from('enrolled_students').insert({
+          request_id: reqId,
+          name: req.student_name,
+          roll_number: req.roll_number,
+          subject_id: subject.id,
+          subject_name: subject.name
         });
-
-        await batch.commit();
-        closeModals();
-        showToast(`Processed ${selectedRequests.size} requests successfully`, "success");
-        selectedRequests.clear();
-        document.getElementById('select-all-requests').checked = false;
-        document.getElementById('bulk-action-bar').classList.add('hidden');
-    } catch(err) {
-        showToast("Error assigning students", "error");
+      }
     }
+
+    closeModals();
+    showToast(`Processed ${selectedRequests.size} requests successfully`, 'success');
+    selectedRequests.clear();
+    const selectAll = document.getElementById('select-all-requests');
+    if (selectAll) selectAll.checked = false;
+    document.getElementById('bulk-action-bar')?.classList.add('hidden');
+    await loadAllData();
+  } catch (err) {
+    showToast('Error assigning students', 'error');
+  }
 });
 
 // Remove Student
 window.removeStudent = async (studentId, requestId) => {
-    if(!confirm("Are you sure you want to permanently delete this student? This action cannot be undone.")) return;
-    try {
-        const batch = writeBatch(db);
-        batch.delete(doc(db, "students", studentId));
-        if(requestId) {
-            batch.delete(doc(db, "enrollmentRequests", requestId));
-        }
-        await batch.commit();
-        showToast("Student deleted permanently", "success");
-    } catch(err) {
-        showToast("Error deleting student", "error");
+  if (!confirm('Are you sure you want to permanently delete this student? This action cannot be undone.')) return;
+  try {
+    await supabase.from('enrolled_students').delete().eq('id', studentId);
+    if (requestId) {
+      await supabase.from('enrollment_requests').delete().eq('id', requestId);
     }
+    showToast('Student deleted permanently', 'success');
+    await loadAllData();
+  } catch (err) {
+    showToast('Error deleting student', 'error');
+  }
 };
 
 window.openEditStudent = (studentId) => {
-    const student = allStudents.find(s => s.id === studentId);
-    if (!student) return;
-    
-    document.getElementById('edit-student-id').value = student.id;
-    document.getElementById('edit-request-id').value = student.requestId || '';
-    document.getElementById('edit-student-name').value = student.name;
-    document.getElementById('edit-student-roll').value = student.rollNumber;
-    
-    openModal('modal-edit-student');
+  const student = allStudents.find(s => s.id === studentId);
+  if (!student) return;
+
+  document.getElementById('edit-student-id').value = student.id;
+  document.getElementById('edit-request-id').value = student.request_id || '';
+  document.getElementById('edit-student-name').value = student.name;
+  document.getElementById('edit-student-roll').value = String(student.roll_number);
+
+  openModal('modal-edit-student');
 };
 
-document.getElementById('form-edit-student').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    
-    const id = document.getElementById('edit-student-id').value;
-    const reqId = document.getElementById('edit-request-id').value;
-    const newName = document.getElementById('edit-student-name').value.trim().toUpperCase();
-    const newRoll = parseInt(document.getElementById('edit-student-roll').value.trim(), 10);
-    
-    if (!newName || isNaN(newRoll)) return;
+document.getElementById('form-edit-student')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
 
-    try {
-        const batch = writeBatch(db);
-        
-        batch.update(doc(db, "students", id), {
-            name: newName,
-            rollNumber: newRoll
-        });
-        
-        if (reqId) {
-            batch.update(doc(db, "enrollmentRequests", reqId), {
-                studentName: newName,
-                rollNumber: newRoll
-            });
-        }
-        
-        await batch.commit();
-        closeModals();
-        showToast("Student updated successfully", "success");
-    } catch(err) {
-        console.error(err);
-        showToast("Error updating student", "error");
+  const id = document.getElementById('edit-student-id').value;
+  const reqId = document.getElementById('edit-request-id').value;
+  const newName = document.getElementById('edit-student-name').value.trim().toUpperCase();
+  const newRoll = parseInt(document.getElementById('edit-student-roll').value.trim(), 10);
+
+  if (!newName || isNaN(newRoll)) return;
+
+  try {
+    await supabase.from('enrolled_students').update({
+      name: newName,
+      roll_number: newRoll
+    }).eq('id', id);
+
+    if (reqId) {
+      await supabase.from('enrollment_requests').update({
+        student_name: newName,
+        roll_number: newRoll
+      }).eq('id', reqId);
     }
+
+    closeModals();
+    showToast('Student updated successfully', 'success');
+    await loadAllData();
+  } catch (err) {
+    console.error(err);
+    showToast('Error updating student', 'error');
+  }
 });
 
 // ======================================================
 // SUBJECT MANAGEMENT
 // ======================================================
 
-document.getElementById('btn-create-subject').addEventListener('click', () => {
-    document.getElementById('form-subject').reset();
-    openModal('modal-subject');
+document.getElementById('btn-create-subject')?.addEventListener('click', () => {
+  document.getElementById('form-subject')?.reset();
+  openModal('modal-subject');
 });
 
-document.getElementById('form-subject').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const name = document.getElementById('subj-name').value.trim();
-    const desc = document.getElementById('subj-desc').value.trim();
-    
-    // Simple deduplication check client-side
-    if(allSubjects.find(s => s.name.toLowerCase() === name.toLowerCase())) {
-        showToast("A subject with this name already exists", "error");
-        return;
-    }
+document.getElementById('form-subject')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const nameInput = document.getElementById('subj-name');
+  const descInput = document.getElementById('subj-desc');
+  const name = nameInput.value.trim();
+  const desc = descInput.value.trim();
 
-    try {
-        await addDoc(collection(db, "subjects"), {
-            name,
-            description: desc,
-            createdAt: serverTimestamp()
-        });
-        closeModals();
-        showToast("Subject created successfully", "success");
-    } catch(err) {
-        showToast("Error creating subject", "error");
-    }
+  if (allSubjects.find(s => s.name.toLowerCase() === name.toLowerCase())) {
+    showToast('A subject with this name already exists', 'error');
+    return;
+  }
+
+  try {
+    const { error } = await supabase.from('subjects').insert({
+      name,
+      description: desc
+    });
+    if (error) throw error;
+
+    closeModals();
+    showToast('Subject created successfully', 'success');
+    await loadSubjects();
+  } catch (err) {
+    showToast('Error creating subject', 'error');
+  }
 });
 
 window.deleteSubject = async (subjId, enrolledCount) => {
-    if(enrolledCount > 0) {
-        alert(`Cannot delete this subject. There are ${enrolledCount} students enrolled. Remove them first.`);
-        return;
-    }
-    if(!confirm("Delete this subject?")) return;
-    try {
-        await deleteDoc(doc(db, "subjects", subjId));
-        showToast("Subject deleted", "success");
-    } catch(err) {
-        showToast("Error deleting subject", "error");
-    }
+  if (enrolledCount > 0) {
+    alert(`Cannot delete this subject. There are ${enrolledCount} students enrolled. Remove them first.`);
+    return;
+  }
+  if (!confirm('Delete this subject?')) return;
+  try {
+    const { error } = await supabase.from('subjects').delete().eq('id', subjId);
+    if (error) throw error;
+    showToast('Subject deleted', 'success');
+    await loadSubjects();
+  } catch (err) {
+    showToast('Error deleting subject', 'error');
+  }
 };
 
 // ======================================================
@@ -1010,135 +1026,151 @@ window.deleteSubject = async (subjId, enrolledCount) => {
 // ======================================================
 
 function generateUniqueToken() {
-    return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+  return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 }
 
 const openGenerateModalHandler = () => {
-    document.getElementById('link-subject-select').value = ""; // reset
-    openModal('modal-generate-link');
+  document.getElementById('link-subject-select').value = '';
+  openModal('modal-generate-link');
 };
 
 const confirmGenerateLinkHandler = async () => {
-    const token = generateUniqueToken();
-    const subjId = document.getElementById('link-subject-select').value;
-    const subject = allSubjects.find(s => s.id === subjId);
-    
-    if(!subject) {
-        showToast("Please select a subject first", "error");
-        return;
-    }
+  const token = generateUniqueToken();
+  const selectEl = document.getElementById('link-subject-select');
+  const subjId = selectEl.value;
+  const subject = allSubjects.find(s => s.id === subjId);
 
-    try {
-        await addDoc(collection(db, "enrollmentLinks"), {
-            token: token,
-            status: "active",
-            subjectId: subject.id,
-            subjectName: subject.name,
-            createdAt: serverTimestamp()
-        });
-        
-        const baseUrl = window.location.origin + window.location.pathname;
-        const fullUrl = `${baseUrl}?token=${token}`;
-        
-        closeModals();
-        document.getElementById('generated-link-url').value = fullUrl;
-        openModal('modal-link');
-        
-        showToast("Auto-assign link generated!", "success");
-    } catch(error) {
-        console.error(error);
-        showToast("Error generating link. Is Firestore enabled?", "error");
-    }
+  if (!subject) {
+    showToast('Please select a subject first', 'error');
+    return;
+  }
+
+  try {
+    const { error } = await supabase.from('enrollment_links').insert({
+      token: token,
+      status: 'active',
+      subject_id: subject.id,
+      subject_name: subject.name
+    });
+    if (error) throw error;
+
+    const baseUrl = window.location.origin + window.location.pathname;
+    const fullUrl = `${baseUrl}?token=${token}`;
+
+    closeModals();
+    const urlInput = document.getElementById('generated-link-url');
+    if (urlInput) urlInput.value = fullUrl;
+    openModal('modal-link');
+
+    showToast('Auto-assign link generated!', 'success');
+    await loadLinks();
+  } catch (error) {
+    console.error(error);
+    showToast('Error generating link', 'error');
+  }
 };
 
-document.getElementById('btn-generate-link-dash').addEventListener('click', openGenerateModalHandler);
-if (document.getElementById('btn-generate-link')) document.getElementById('btn-generate-link').addEventListener('click', openGenerateModalHandler);
-if (document.getElementById('btn-generate-link-page')) document.getElementById('btn-generate-link-page').addEventListener('click', openGenerateModalHandler);
+document.getElementById('btn-generate-link-dash')?.addEventListener('click', openGenerateModalHandler);
+document.getElementById('btn-generate-link')?.addEventListener('click', openGenerateModalHandler);
+document.getElementById('btn-generate-link-page')?.addEventListener('click', openGenerateModalHandler);
+document.getElementById('btn-confirm-generate')?.addEventListener('click', confirmGenerateLinkHandler);
 
-document.getElementById('btn-confirm-generate').addEventListener('click', confirmGenerateLinkHandler);
-
-document.getElementById('btn-copy-link').addEventListener('click', () => {
-    const input = document.getElementById('generated-link-url');
-    input.select();
-    document.execCommand('copy');
-    showToast("Link copied to clipboard", "success");
+document.getElementById('btn-copy-link')?.addEventListener('click', () => {
+  const input = document.getElementById('generated-link-url');
+  if (!input) return;
+  input.select();
+  navigator.clipboard.writeText(input.value).then(() => {
+    showToast('Link copied to clipboard', 'success');
+  });
 });
 
 window.copyLink = (token) => {
-    const baseUrl = window.location.origin + window.location.pathname;
-    const fullUrl = `${baseUrl}?token=${token}`;
-    navigator.clipboard.writeText(fullUrl).then(() => {
-        showToast("Link copied", "success");
-    });
+  const baseUrl = window.location.origin + window.location.pathname;
+  const fullUrl = `${baseUrl}?token=${token}`;
+  navigator.clipboard.writeText(fullUrl).then(() => {
+    showToast('Link copied', 'success');
+  });
 };
 
 window.toggleLinkStatus = async (linkId, currentStatus) => {
-    const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
-    try {
-        await updateDoc(doc(db, "enrollmentLinks", linkId), { status: newStatus });
-        showToast(`Link ${newStatus} successfully`, "success");
-    } catch(err) {
-        showToast("Error updating link", "error");
-    }
+  const newStatus = currentStatus === 'active' ? 'inactive' : 'active';
+  try {
+    const { error } = await supabase
+      .from('enrollment_links')
+      .update({ status: newStatus })
+      .eq('id', linkId);
+    if (error) throw error;
+    showToast(`Link ${newStatus} successfully`, 'success');
+    await loadLinks();
+  } catch (err) {
+    showToast('Error updating link', 'error');
+  }
 };
 
 window.deleteLink = async (linkId) => {
-    if (confirm("Are you sure you want to permanently delete this link?")) {
-        try {
-            await deleteDoc(doc(db, "enrollmentLinks", linkId));
-            showToast("Link deleted permanently", "success");
-        } catch(err) {
-            console.error(err);
-            showToast("Error deleting link", "error");
-        }
+  if (confirm('Are you sure you want to permanently delete this link?')) {
+    try {
+      const { error } = await supabase.from('enrollment_links').delete().eq('id', linkId);
+      if (error) throw error;
+      showToast('Link deleted permanently', 'success');
+      await loadLinks();
+    } catch (err) {
+      console.error(err);
+      showToast('Error deleting link', 'error');
     }
+  }
 };
 
 // ======================================================
-// UTILITIES (Modals, Toasts, Search)
+// MODALS, TOASTS & SEARCH
 // ======================================================
 
 function openModal(modalId) {
-    document.getElementById('modal-backdrop').classList.remove('hidden');
-    document.getElementById(modalId).classList.remove('hidden');
+  document.getElementById('modal-backdrop')?.classList.remove('hidden');
+  document.getElementById(modalId)?.classList.remove('hidden');
 }
 
 function closeModals() {
-    document.getElementById('modal-backdrop').classList.add('hidden');
-    document.querySelectorAll('.modal').forEach(m => m.classList.add('hidden'));
+  document.getElementById('modal-backdrop')?.classList.add('hidden');
+  document.querySelectorAll('.modal').forEach(m => m.classList.add('hidden'));
 }
 
 document.querySelectorAll('.close-modal, .close-modal-btn, .modal-backdrop').forEach(btn => {
-    btn.addEventListener('click', closeModals);
+  btn.addEventListener('click', closeModals);
 });
 
-function showToast(message, type = "success") {
-    const container = document.getElementById('toast-container');
-    const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
-    const icon = type === 'success' ? 'bx-check-circle' : 'bx-x-circle';
-    toast.innerHTML = `<i class='bx ${icon}'></i> <span>${message}</span>`;
-    
-    container.appendChild(toast);
-    
-    setTimeout(() => {
-        toast.classList.add('fade-out');
-        setTimeout(() => toast.remove(), 300);
-    }, 3000);
+function showToast(message, type = 'success') {
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  const icon = type === 'success' ? 'bx-check-circle' : 'bx-x-circle';
+  toast.innerHTML = `<i class='bx ${icon}'></i> <span>${message}</span>`;
+
+  container.appendChild(toast);
+
+  setTimeout(() => {
+    toast.classList.add('fade-out');
+    setTimeout(() => toast.remove(), 300);
+  }, 3000);
 }
 
-document.getElementById('global-search').addEventListener('input', () => {
-    renderRequestsTable();
+document.getElementById('global-search')?.addEventListener('input', () => {
+  renderRequestsTable();
 });
 
-if (document.getElementById('students-search')) {
-    document.getElementById('students-search').addEventListener('input', renderStudentsTable);
-}
-
-document.getElementById('request-status-filter').addEventListener('change', () => {
-    selectedRequests.clear();
-    document.getElementById('bulk-action-bar').classList.add('hidden');
-    const selectAll = document.getElementById('select-all-requests');
-    if (selectAll) selectAll.checked = false;
-    renderRequestsTable();
+document.getElementById('students-search')?.addEventListener('input', () => {
+  renderStudentsTable();
 });
+
+document.getElementById('request-status-filter')?.addEventListener('change', () => {
+  selectedRequests.clear();
+  document.getElementById('bulk-action-bar')?.classList.add('hidden');
+  const selectAll = document.getElementById('select-all-requests');
+  if (selectAll) selectAll.checked = false;
+  renderRequestsTable();
+});
+
+function setupModals() {}
+function setupSearchAndFilters() {}
