@@ -1,0 +1,16 @@
+{
+  "name": "smart-enrollment-portal",
+  "version": "2.0.0",
+  "description": "School Management & Smart Enrollment Portal migrated to TypeScript & Supabase",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}
